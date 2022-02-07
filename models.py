@@ -27,10 +27,8 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import warnings
 
-import torch
 import torch.nn as nn
 
 from compressai.entropy_models import EntropyBottleneck
@@ -47,16 +45,10 @@ class CompressionModel(nn.Module):
             bottleneck
     """
 
-    def __init__(self, entropy_bottleneck_channels, init_weights=None):
+    def __init__(self, entropy_bottleneck_channels):
         super().__init__()
         self.entropy_bottleneck = EntropyBottleneck(
             entropy_bottleneck_channels)
-
-        if init_weights is not None:
-            warnings.warn(
-                "init_weights was removed as it was never functional",
-                DeprecationWarning,
-            )
 
     def aux_loss(self):
         """Return the aggregated loss over the auxiliary entropy bottleneck
