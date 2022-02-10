@@ -108,6 +108,7 @@ def configure_optimizers(net, args):
         for n, p in net.named_parameters()
         if n.endswith(".quantiles") and p.requires_grad
     }
+    print(aux_parameters)
 
     # Make sure we don't have an intersection of parameters
     params_dict = dict(net.named_parameters())
@@ -204,13 +205,6 @@ def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Example training script.")
     parser.add_argument(
-        "-m",
-        "--model",
-        default="bmshj2018-factorized",
-        choices=models.keys(),
-        help="Model architecture (default: %(default)s)",
-    )
-    parser.add_argument(
         "-d", "--dataset", type=str, required=True, help="Training dataset"
     )
     parser.add_argument(
@@ -294,15 +288,18 @@ def main(argv):
         random.seed(args.seed)
 
     train_transforms = transforms.Compose(
-        [transforms.RandomCrop(args.patch_size, pad_if_needed=True), transforms.ToTensor()]
+        [transforms.RandomCrop(
+            args.patch_size, pad_if_needed=True), transforms.ToTensor()]
     )
 
     test_transforms = transforms.Compose(
         [transforms.CenterCrop(args.patch_size), transforms.ToTensor()]
     )
 
-    train_dataset = ImageNetDataset(args.dataset, split="train", transform=train_transforms, num_samples=args.num_samples)
-    test_dataset = ImageNetDataset(args.dataset, split="val", transform=test_transforms, num_samples=args.num_samples)
+    train_dataset = ImageNetDataset(
+        args.dataset, split="train", transform=train_transforms, num_samples=args.num_samples)
+    test_dataset = ImageNetDataset(
+        args.dataset, split="val", transform=test_transforms, num_samples=args.num_samples)
 
     device = "cuda" if args.cuda and torch.cuda.is_available() else "cpu"
 
