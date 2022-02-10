@@ -19,10 +19,6 @@ def pil_to_tensor(im: Image) -> torch.Tensor:
         return tensor[None, :3, :, :]
 
 
-im_path = "~/projects/CompressAI/link_180x210.png"
-model = FactorizedPrior(128, 192)
-
-
 def clean_checkpoint_data_parallel(checkpoint: Dict) -> Dict[str, torch.Tensor]:
     # If the model was trained with DataParallel, we will have to remove
     # the .module prefix from the keys. 
@@ -42,6 +38,9 @@ checkpoint = torch.load("checkpoint_best_loss.pth.tar",
                         map_location=torch.device("cpu"))
 
 new_dict = clean_checkpoint_data_parallel(checkpoint)
+
+# Restoring the model
+model = FactorizedPrior(128, 192)
 model.load_state_dict(new_dict)
 model.update()
 
