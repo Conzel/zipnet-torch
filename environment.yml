@@ -1,0 +1,10 @@
+name: zipnet-torch
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pytorch=1.10.*
+  - pip:
+    - constriction=0.2.*
+    - compressai=1.1.*
+prefix: /opt/homebrew/Caskroom/mambaforge/base/envs/zipnet-torch
