@@ -158,18 +158,14 @@ class FactorizedPrior(CompressionModel):
         return net
 
     def compress(self, x):
+        # TODO: Use constriction compression
         y = self.g_a(x)
         y_strings = self.entropy_bottleneck.compress(y)
         return {"strings": [y_strings], "shape": y.size()[-2:]}
 
     def decompress(self, strings, shape):
+        # TODO: Use constriction decompression
         assert isinstance(strings, list) and len(strings) == 1
         y_hat = self.entropy_bottleneck.decompress(strings[0], shape)
         x_hat = self.g_s(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
-
-def compress_constriction(x, cdf, medians):
-    pass
-
-def decompress_constriction(x, cdf, medians):
-    pass
