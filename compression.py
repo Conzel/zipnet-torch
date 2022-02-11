@@ -66,13 +66,17 @@ def make_symbols(y: np.ndarray, offset: int, symbol_max_per_channel: np.ndarray,
     return symbols
 
 
-def quantize(y: np.ndarray, quant_range: tuple[int, int]) -> np.ndarray:
+def quantize(y: np.ndarray, quant_range: tuple[int, int], means: np.ndarray = None) -> np.ndarray:
     """
-    Quantizes a flat array of values to y to integers. 
+    Quantizes an array of values to y to integers. 
     """
+    assert y.shape[0]
     q_min, q_max = quant_range
     assert q_min < q_max
     # TODO: subtract median before this
+    if means is not None:
+        assert y.shape[0] == means.shape[0]
+        y = y - means
     y_quantized = y.round().clip(q_min, q_max).astype(np.int32)
     return y_quantized
 
