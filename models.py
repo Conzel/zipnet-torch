@@ -27,13 +27,14 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from typing import OrderedDict
 import warnings
 
 import torch.nn as nn
 
 from compressai.entropy_models import EntropyBottleneck
 
-from utils import conv, deconv, update_registered_buffers
+from utils import conv, conv_transpose, update_registered_buffers
 
 
 class CompressionModel(nn.Module):
@@ -109,26 +110,27 @@ class FactorizedPrior(CompressionModel):
     def __init__(self, N, M, **kwargs):
         super().__init__(entropy_bottleneck_channels=M, **kwargs)
 
-        self.g_a = nn.Sequential(
-            conv(3, N),
-            nn.ReLU(),
-            conv(N, N),
-            nn.ReLU(),
-            conv(N, N),
-            nn.ReLU(),
-            conv(N, M),
-        )
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N)),
+                ("relu0", nn.ReLU()),
+                ("conv1", conv(N, N)),
+                ("relu1", nn.ReLU()),
+                ("conv2", conv(N, N)),
+                ("relu2", nn.ReLU()),
+                ("conv3", conv(N, M)),
+            ]))
 
-        self.g_s = nn.Sequential(
-            deconv(M, N),
-            nn.ReLU(),
-            deconv(N, N),
-            nn.ReLU(),
-            deconv(N, N),
-            nn.ReLU(),
-            deconv(N, 3),
-        )
-
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv_transpose0", conv_transpose(M, N)),
+                ("relu0", nn.ReLU()),
+                ("conv_transpose1", conv_transpose(N, N)),
+                ("relu1", nn.ReLU()),
+                ("conv_transpose2", conv_transpose(N, N)),
+                ("relu2", nn.ReLU()),
+                ("conv_transpose3", conv_transpose(N, 3)),
+            ]))
         self.N = N
         self.M = M
 
@@ -137,9 +139,9 @@ class FactorizedPrior(CompressionModel):
         return 2 ** 4
 
     def forward(self, x):
-        y = self.g_a(x)
+        y = self.analysis_transform(x)
         y_hat, y_likelihoods = self.entropy_bottleneck(y)
-        x_hat = self.g_s(y_hat)
+        x_hat = self.synthesis_transform(y_hat)
 
         return {
             "x_hat": x_hat,
@@ -159,7 +161,7 @@ class FactorizedPrior(CompressionModel):
 
     def compress(self, x):
         # TODO: Use constriction compression
-        y = self.g_a(x)
+        y = self.analysis_transform(x)
         y_strings = self.entropy_bottleneck.compress(y)
         return {"strings": [y_strings], "shape": y.size()[-2:]}
 
@@ -167,5 +169,5 @@ class FactorizedPrior(CompressionModel):
         # TODO: Use constriction decompression
         assert isinstance(strings, list) and len(strings) == 1
         y_hat = self.entropy_bottleneck.decompress(strings[0], shape)
-        x_hat = self.g_s(y_hat).clamp_(0, 1)
+        x_hat = self.synthesis_transform(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
