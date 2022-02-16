@@ -155,3 +155,26 @@ def encompression_decompression_run(y: np.ndarray, cdf: np.ndarray, offsets: np.
         compressed_symbols, symbols.shape, cdf, symbol_max_per_channel, precision)
     y_tilde = unmake_symbols(decompressed_symbols, offsets, means)
     return compressed_symbols, y_tilde
+
+
+def _mock_quantization(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.ndarray, means: np.ndarray):
+    """
+    Returns y_hat that is only quantized. In a real scenario, one does not need these, but it is useful for debugging.
+    For testing purposes, as these should be identical to the symbols that one gets out after doing these steps:
+
+    y -> make_symbols -> compress -> decompress -> unmake symbols -> y_hat
+
+    This function basically provides a shortcut:
+    y -------------------------------------------------------------> y_hat 
+    """
+    assert issubclass(y.dtype.type, np.floating)
+    assert issubclass(offsets.dtype.type, np.integer)
+    num_channels = y.shape[0]
+    y_hat = np.zeros_like(y, dtype=np.float32)
+    for c in range(num_channels):
+        y_channel = y[c, :, :] - means[c]
+        offset = offsets[c]
+        quant_range = (offset, offset + symbol_max_per_channel[c] - 1)
+        quantized_channel = quantize(y_channel, quant_range) + means[c]
+        y_hat[c, :, :] = quantized_channel
+    return y_hat
