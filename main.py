@@ -24,13 +24,17 @@ with Image.open("/Users/almico/Downloads/botw-wallpaper.jpg") as im:
     print(f"CompressAI size: {len(s['strings'][0][0])} Byte")
     x_hat = model.decompress(s["strings"], s["shape"])["x_hat"]
     im_hat = tensor_to_pil(x_hat)
-    # im_hat.show()
+    im_hat.show()
 
     # our implementation
+    medians = model.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
     y = model.analysis_transform(x)
     compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), model.entropy_bottleneck._quantized_cdf.numpy(
-    ), model.entropy_bottleneck._offset.numpy(), model.entropy_bottleneck._cdf_length.numpy(), 16)
-    x_hat = model.synthesis_transform(torch.Tensor(y_quant[None, :, :, :]))
-    print(f"Our size: {compressed.size*4} Byte") # *32/8, as we return an ndarray of uint32
+    ), model.entropy_bottleneck._offset.numpy(), model.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+
+    x_hat = model.synthesis_transform(
+        torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
+    # *32/8, as we return an ndarray of uint32
+    print(f"Our size: {compressed.size*4} Byte")
     im_hat = tensor_to_pil(x_hat)
     im_hat.show()
