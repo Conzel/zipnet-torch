@@ -26,6 +26,7 @@ def test_compression():
     np.random.seed(5)
     precision = 16
     offsets = np.array([-2, -2])
+    means = np.array([0, 0])
 
     y = np.random.normal(0, 1, (2, 3, 3))
     pmf = np.array([[0.1, 0.2, 0.4, 0.2, 0.1], [0.1, 0.25, 0.3, 0.25, 0.1]])
@@ -34,7 +35,7 @@ def test_compression():
     cdf = np.stack((cdf1, cdf2))
     cdf_lengths = np.array([6, 6])
 
-    symbols = make_symbols(y, offsets, cdf_lengths)
+    symbols = make_symbols(y, offsets, cdf_lengths, means)
     compressed = compress_symbols(symbols, cdf, cdf_lengths, precision)
     # This is essentially a regression test.
     assert np.all(compressed == np.array([2461260253, 1328450681]))
@@ -44,6 +45,7 @@ def test_decompression():
     np.random.seed(5)
     precision = 16
     offsets = np.array([-2, -2])
+    means = np.array([0, 0])
 
     y = np.random.normal(0, 1, (2, 3, 3))
     pmf = np.array([[0.1, 0.2, 0.4, 0.2, 0.1], [0.1, 0.25, 0.3, 0.25, 0.1]])
@@ -52,7 +54,7 @@ def test_decompression():
     cdf = np.stack((cdf1, cdf2))
     cdf_lengths = np.array([6, 6])
 
-    symbols = make_symbols(y, offsets, cdf_lengths)
+    symbols = make_symbols(y, offsets, cdf_lengths, means)
     compressed = compress_symbols(symbols, cdf, cdf_lengths, precision)
     symbols_decompressed = decompress_symbols(
         compressed, symbols.shape, cdf, cdf_lengths, precision)
@@ -65,10 +67,10 @@ def test_make_unmake_symbols_random():
     offsets = np.array([-6, -7, -7])
     symbols_per_channel = np.array([13, 14, 15])
     y = np.random.random((3, 12, 15))
+    means = np.zeros_like(offsets)
 
-    symbols = make_symbols(
-        y, offsets, symbol_max_per_channel=symbols_per_channel)
-    y_restored = unmake_symbols(symbols, offsets)
+    symbols = make_symbols(y, offsets, symbols_per_channel, means)
+    y_restored = unmake_symbols(symbols, offsets, means)
     # we can maximally introduce a 0.5 error due to quantization
     assert (np.abs(y_restored - y) <= 0.5).all()
     # sanity check, would be unrealistic to only introduce a 0.1 error

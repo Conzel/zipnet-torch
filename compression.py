@@ -49,7 +49,7 @@ def compress_symbols(symbols: np.ndarray, cdf: np.ndarray, cdf_lengths: np.ndarr
     return coder.get_compressed()
 
 
-def make_symbols(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.ndarray, means: np.ndarray = None):
+def make_symbols(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.ndarray, means: np.ndarray):
     """
     Makes symbols out of a tensor y. 
     This involves quantization in form of rounding and an eventual shift so the
@@ -70,10 +70,7 @@ def make_symbols(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.
     num_channels = y.shape[0]
     symbols = np.zeros_like(y, dtype=np.int32)
     for c in range(num_channels):
-        if means is not None:
-            y_channel = y[c, :, :] - means[c]
-        else:
-            y_channel = y[c, :, :]
+        y_channel = y[c, :, :] - means[c]
         offset = offsets[c]
         quant_range = (offset, offset + symbol_max_per_channel[c] - 1)
         quantized_channel = quantize(y_channel, quant_range) - offset
@@ -84,7 +81,7 @@ def make_symbols(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.
     return symbols
 
 
-def unmake_symbols(symbols: np.ndarray, offsets: np.ndarray, means: np.ndarray = None) -> np.ndarray:
+def unmake_symbols(symbols: np.ndarray, offsets: np.ndarray, means: np.ndarray) -> np.ndarray:
     """
     Takes an array of symbols and restores the original y-values (up to errors
     introduced by quantization).
@@ -97,12 +94,9 @@ def unmake_symbols(symbols: np.ndarray, offsets: np.ndarray, means: np.ndarray =
     assert issubclass(symbols.dtype.type, np.integer)
     assert issubclass(offsets.dtype.type, np.integer)
     assert symbols.shape[0] == offsets.shape[0]
+    assert means.shape[0] == offsets.shape[0]
     # broadcasting ensures everything is fine
-    if means is not None:
-        assert means.shape[0] == offsets.shape[0]
-        return symbols + offsets[:, None, None] + means[:, None, None]
-    else:
-        return symbols + offsets[:, None, None]
+    return symbols.astype(np.float32) + offsets[:, None, None] + means[:, None, None]
 
 
 def quantize(y: np.ndarray, quant_range: tuple[int, int]) -> np.ndarray:
@@ -146,7 +140,8 @@ def decompress_symbols(compressed, target_shape: tuple, cdf: np.ndarray, cdf_len
 
     return symbols
 
-def encompression_decompression_run(y: np.ndarray, cdf: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.ndarray, precision: int, means: np.ndarray = None) -> tuple[np.ndarray, np.ndarray]:
+
+def encompression_decompression_run(y: np.ndarray, cdf: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.ndarray, precision: int, means: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Performs encompression and decompression in one run on the given array y. 
 
@@ -154,7 +149,9 @@ def encompression_decompression_run(y: np.ndarray, cdf: np.ndarray, offsets: np.
     Where y_tilde is the quantized version of y, and compressed is the binary compressed representation of y_hat.
     """
     symbols = make_symbols(y, offsets, symbol_max_per_channel, means=means)
-    compressed_symbols = compress_symbols(symbols, cdf, symbol_max_per_channel, precision)
-    decompressed_symbols = decompress_symbols(compressed_symbols, symbols.shape, cdf, symbol_max_per_channel, precision)
+    compressed_symbols = compress_symbols(
+        symbols, cdf, symbol_max_per_channel, precision)
+    decompressed_symbols = decompress_symbols(
+        compressed_symbols, symbols.shape, cdf, symbol_max_per_channel, precision)
     y_tilde = unmake_symbols(decompressed_symbols, offsets, means)
     return compressed_symbols, y_tilde
