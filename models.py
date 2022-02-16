@@ -150,15 +150,6 @@ class FactorizedPrior(CompressionModel):
             },
         }
 
-    @classmethod
-    def from_state_dict(cls, state_dict):
-        """Return a new model instance from `state_dict`."""
-        N = state_dict["g_a.0.weight"].size(0)
-        M = state_dict["g_a.6.weight"].size(0)
-        net = cls(N, M)
-        net.load_state_dict(state_dict)
-        return net
-
     def compress(self, x):
         # TODO: Use constriction compression
         y = self.analysis_transform(x)
