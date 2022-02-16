@@ -3,7 +3,11 @@ import constriction
 
 
 def cdf_to_pmf(quantized_cdf: np.ndarray, precision_bits: int = 16) -> np.ndarray:
-    """Convert quantized CDF to unnormalized PMF.
+    """
+    Convert the given quantized CDF to unnormalized PMF.
+    CDF is quantized in a way such that it starts with 0 and ends with 2**precision_bits.
+
+    PMF is output as floating point numpy array. 
     """
     assert quantized_cdf.ndim == 1
     assert issubclass(quantized_cdf.dtype.type, np.integer)
@@ -40,25 +44,39 @@ def compress_symbols(symbols: np.ndarray, cdf: np.ndarray, cdf_lengths: np.ndarr
 
     for c in range(num_channels):
         pmf = cdf_to_pmf(cdf[c, 0:cdf_lengths[c]], precision).squeeze()
-
         model = constriction.stream.model.Categorical(pmf)
-
         coder.encode(symbols[c, :, :].ravel(), model)
     return coder.get_compressed()
 
 
-def make_symbols(y: np.ndarray, offset: int, symbol_max_per_channel: np.ndarray, precision: int):
+def make_symbols(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.ndarray, means: np.ndarray = None):
     """
     Makes symbols out of a tensor y. 
-    This involves quantization and an eventual shift so the
+    This involves quantization in form of rounding and an eventual shift so the
     symbols are natural numbers.
+
+    We make the symbols as follows:
+
+    for each channel:
+        1. Subtract the mean of the channel to centralize the distribution (optional)
+        2. Build the quantization range, which goes from the given offset (lowest y-value that
+        can still be represented) to the highest y-value that can be represented (which is 
+        # of elements in the CDF at the given channel + the offset)
+        3. Quantize the y-values to the quantization range (they are rounded and clipped to the range)
+        4. Subtract the offset so that the symbols are natural numbers
     """
     assert issubclass(y.dtype.type, np.floating)
+    assert issubclass(offsets.dtype.type, np.integer)
     num_channels = y.shape[0]
     symbols = np.zeros_like(y, dtype=np.int32)
     for c in range(num_channels):
+        if means is not None:
+            y_channel = y[c, :, :] - means[c]
+        else:
+            y_channel = y[c, :, :]
+        offset = offsets[c]
         quant_range = (offset, offset + symbol_max_per_channel[c] - 1)
-        quantized_channel = quantize(y[c, :, :], quant_range) - offset
+        quantized_channel = quantize(y_channel, quant_range) - offset
         assert quantized_channel.max() < symbol_max_per_channel[c]
         assert quantized_channel.min() >= 0
 
@@ -66,17 +84,39 @@ def make_symbols(y: np.ndarray, offset: int, symbol_max_per_channel: np.ndarray,
     return symbols
 
 
-def quantize(y: np.ndarray, quant_range: tuple[int, int], means: np.ndarray = None) -> np.ndarray:
+def unmake_symbols(symbols: np.ndarray, offsets: np.ndarray, means: np.ndarray = None) -> np.ndarray:
+    """
+    Takes an array of symbols and restores the original y-values (up to errors
+    introduced by quantization).
+
+    This proceeds in reverse order as make_symbols.
+
+    1. Add the offset back in to get values over the original quantization range
+    2. Add the mean back in (optional)
+    """
+    assert issubclass(symbols.dtype.type, np.integer)
+    assert issubclass(offsets.dtype.type, np.integer)
+    assert symbols.shape[0] == offsets.shape[0]
+    # broadcasting ensures everything is fine
+    if means is not None:
+        assert means.shape[0] == offsets.shape[0]
+        return symbols + offsets[:, None, None] + means[:, None, None]
+    else:
+        return symbols + offsets[:, None, None]
+
+
+def quantize(y: np.ndarray, quant_range: tuple[int, int]) -> np.ndarray:
     """
     Quantizes an array of values to y to integers. 
+
+    The quantization process is as follows:
+
+    1. Round the values to the nearest integer
+    2. Clip the values to the quantization range
     """
     assert y.shape[0]
     q_min, q_max = quant_range
     assert q_min < q_max
-    # TODO: subtract median before this
-    if means is not None:
-        assert y.shape[0] == means.shape[0]
-        y = y - means
     y_quantized = y.round().clip(q_min, q_max).astype(np.int32)
     return y_quantized
 
