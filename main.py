@@ -1,38 +1,10 @@
+import numpy as np
 from models import FactorizedPrior
 import torch
 from PIL import Image
-from torchvision.transforms import ToTensor, ToPILImage
-from typing import Dict
-from compression import encompression_decompression_run
-
-
-def tensor_to_pil(x: torch.Tensor) -> Image:
-    """Convert a tensor to a PIL image."""
-    return ToPILImage()(x.squeeze())
-
-
-def pil_to_tensor(im: Image) -> torch.Tensor:
-    """Convert a PIL image to a tensor."""
-    tensor = ToTensor()(im)
-    if tensor.shape[0] == 3:
-        return tensor[None, :, :, :]
-    else:
-        return tensor[None, :3, :, :]
-
-
-def clean_checkpoint_data_parallel(checkpoint: Dict) -> Dict[str, torch.Tensor]:
-    # If the model was trained with DataParallel, we will have to remove
-    # the .module prefix from the keys.
-    # See:
-    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/8
-    new_dict = {}
-    for key in checkpoint["state_dict"]:
-        if key.startswith("module."):
-            new_key = key[7:]
-        else:
-            new_key = key
-        new_dict[new_key] = checkpoint["state_dict"][key]
-    return new_dict
+from compression import encompression_decompression_run, quantize
+from export_weights import clean_checkpoint_data_parallel
+from utils import pil_to_tensor, tensor_to_pil
 
 
 checkpoint = torch.load("checkpoint_best_loss.pth.tar",
@@ -45,7 +17,6 @@ model = FactorizedPrior(128, 192)
 model.load_state_dict(new_dict)
 model.update()
 
-# with Image.open("/Users/almico/Downloads/link.png") as im:
 with Image.open("/Users/almico/Downloads/botw-wallpaper.jpg") as im:
     x = pil_to_tensor(im)
     # the implementation by CompressAI

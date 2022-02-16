@@ -33,6 +33,21 @@ import torch.nn.functional as F
 from pathlib import Path
 from PIL import Image
 from torch.utils.data import Dataset
+from torchvision.transforms import ToTensor, ToPILImage
+
+
+def tensor_to_pil(x: torch.Tensor) -> Image:
+    """Convert a tensor to a PIL image."""
+    return ToPILImage()(x.squeeze())
+
+
+def pil_to_tensor(im: Image) -> torch.Tensor:
+    """Convert a PIL image to a tensor."""
+    tensor = ToTensor()(im)
+    if tensor.shape[0] == 3:
+        return tensor[None, :, :, :]
+    else:
+        return tensor[None, :3, :, :]
 
 
 def find_named_buffer(module, query):
