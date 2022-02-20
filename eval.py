@@ -41,13 +41,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-
-from torch.utils.data import DataLoader
-from torchvision import transforms
 from pytorch_msssim import ms_ssim
 
 from utils import ImageNetDataset
-from compressai.zoo import models
+from compression import encompression_decompression_run
 from export_weights import clean_checkpoint_data_parallel
 
 class RateDistortionLoss(nn.Module):
@@ -58,23 +55,20 @@ class RateDistortionLoss(nn.Module):
         self.mse = nn.MSELoss()
         self.lmbda = lmbda
 
-    def forward(self, output, target, get_bpp=True, bpp=None):
+    def forward(self, output, target, get_bpp=True, bytes=None):
         N, _, H, W = target.size()
         out = {}
         num_pixels = N * H * W
 
         if get_bpp:
-            out["bpp_loss"] = sum(
-                (torch.log(likelihoods).sum() / (-math.log(2) * num_pixels))
-                for likelihoods in output["likelihoods"].values()
-            )
-            x_hat = output["x_hat"]
+            out["bpp"] = bytes / num_pixels
+            x_hat = output
         else:
-            out["bpp_loss"] = bpp
+            out["bpp"] = bytes # its BPP in case of JPEG
             x_hat = output
         mse = self.mse(x_hat, target)
         out["mse_loss"] = mse
-        out["loss"] = self.lmbda * 255 ** 2 * out["mse_loss"] + out["bpp_loss"]
+        out["loss"] = self.lmbda * 255 ** 2 * out["mse_loss"] + out["bpp"]
         out["PSNR"] = -10 * math.log10(mse)
         out["ms-ssim"] = ms_ssim(x_hat, target, data_range=1.0).item()
         return out
@@ -128,16 +122,16 @@ def find_closest_bpp(target, img, fmt='jpeg'):
             lower = mid
     return rec, bpp
 
-def evaluate(test_img, out_net, criterion, get_bpp, bpp=None):
+def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
     loss = AverageMeter()
     bpp_loss = AverageMeter()
     mse_loss = AverageMeter()
     psnr_loss = AverageMeter()
     msssim_loss = AverageMeter()
     with torch.no_grad():
-        out_criterion = criterion(out_net, test_img, get_bpp, bpp)
+        out_criterion = criterion(out_net, test_img, get_bpp, bytes)
         
-        bpp_loss.update(out_criterion["bpp_loss"])
+        bpp_loss.update(out_criterion["bpp"])
         loss.update(out_criterion["loss"])
         mse_loss.update(out_criterion["mse_loss"])
         psnr_loss.update(out_criterion["PSNR"])
@@ -147,7 +141,7 @@ def evaluate(test_img, out_net, criterion, get_bpp, bpp=None):
         f"\tPSNR: {psnr_loss.avg:.3f} |"
         f"\tMS-SSIM: {msssim_loss.avg:.3f} |"
         f"\tMSE loss: {mse_loss.avg:.3f} |"
-        f"\tBpp loss: {bpp_loss.avg:.2f} |"
+        f"\tBpp: {bpp_loss.avg:.2f} |"
     )
     return bpp_loss.avg
 
@@ -188,8 +182,16 @@ def run_model(model, test_img):
     device = next(model.parameters()).device
     with torch.no_grad():
         test_img = test_img.to(device)
-        out_net = model(test_img)
-    return out_net
+        # our implementation
+        medians = model.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        y = model.analysis_transform(test_img)
+        compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), model.entropy_bottleneck._quantized_cdf.numpy(
+        ), model.entropy_bottleneck._offset.numpy(), model.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+
+        x_hat_constriction = model.synthesis_transform(
+            torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
+    num = 32 / 8 # compressed is uint32
+    return x_hat_constriction, compressed.size * num
 
 def main(argv):
     args = parse_args(argv)
@@ -199,12 +201,12 @@ def main(argv):
 
     print("Evaluating:", args.d)
     print("-"*50)
-    x_hat = run_model(model, img_tensor)
-    bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True)
+    x_hat, bytes_compressed = run_model(model, img_tensor)
+    bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True, bytes=bytes_compressed)
 
     x_jpeg, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
-    print("Closest BPP for JPEG:", bpp_jpeg)
-    _ = evaluate(img_tensor, pil_to_tensor(x_jpeg), criterion, get_bpp=False, bpp=bpp_jpeg)
+    print("Closest BPP for:", bpp_jpeg)
+    _ = evaluate(img_tensor, pil_to_tensor(x_jpeg), criterion, get_bpp=False, bytes=bpp_jpeg)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
