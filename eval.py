@@ -36,6 +36,7 @@ from models import FactorizedPrior
 from PIL import Image
 from utils import pil_to_tensor
 import io
+import time
 
 import torch
 import torch.nn as nn
@@ -184,14 +185,19 @@ def run_model(model, test_img):
         test_img = test_img.to(device)
         # our implementation
         medians = model.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+
+        start = time.time()
         y = model.analysis_transform(test_img)
         compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), model.entropy_bottleneck._quantized_cdf.numpy(
         ), model.entropy_bottleneck._offset.numpy(), model.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+        enc_time = time.time() - start
 
+        start = time.time()
         x_hat_constriction = model.synthesis_transform(
             torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
+        dec_time = time.time() - start
     num = 32 / 8 # compressed is uint32
-    return x_hat_constriction, compressed.size * num
+    return x_hat_constriction, compressed.size * num, enc_time, dec_time
 
 def main(argv):
     args = parse_args(argv)
@@ -201,12 +207,16 @@ def main(argv):
 
     print("Evaluating:", args.d)
     print("-"*50)
-    x_hat, bytes_compressed = run_model(model, img_tensor)
+    x_hat, bytes_compressed, enc_time, dec_time = run_model(model, img_tensor)
     bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True, bytes=bytes_compressed)
 
     x_jpeg, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
     print("Closest BPP for:", bpp_jpeg)
     _ = evaluate(img_tensor, pil_to_tensor(x_jpeg), criterion, get_bpp=False, bytes=bpp_jpeg)
+
+    print("Encode time in secs:", enc_time % 60)
+    print("Decoder time in secs:", dec_time % 60)
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
