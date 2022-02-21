@@ -7,6 +7,9 @@ import torch
 import numpy as np
 import sys
 
+from models import FactorizedPrior
+
+
 def clean_checkpoint_data_parallel(checkpoint: dict) -> dict[str, torch.Tensor]:
     """
     If the model was trained with DataParallel, we will have to remove
@@ -25,12 +28,22 @@ def clean_checkpoint_data_parallel(checkpoint: dict) -> dict[str, torch.Tensor]:
             new_key = key
         new_dict[new_key] = checkpoint["state_dict"][key]
     return new_dict
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         raise ValueError("Please provide a checkpoint file")
     checkpoint = torch.load(sys.argv[1], map_location=torch.device("cpu"))
 
     new_dict = clean_checkpoint_data_parallel(checkpoint)
+
+    model = FactorizedPrior(128, 192)
+    model.load_state_dict(new_dict)
+    model.update()
+
+    # model update populates some important variables,
+    # this is why we have to call it here.
+    state_dict = model.state_dict()
 
     # TODO: These keys will later be non-hardcoded
     keys_to_export = {
@@ -47,5 +60,6 @@ if __name__ == "__main__":
         'entropy_bottleneck._cdf_length'
     }
 
-    exported_dict = { key: new_dict[key] for key in keys_to_export }
+    exported_dict = {key: new_dict[key] for key in keys_to_export}
+    exported_dict["entropy_bottleneck._medians"] = state_dict["entropy_bottleneck.quantiles"][:, :, 1:2].squeeze()
     np.savez("weights.npz", **exported_dict)
