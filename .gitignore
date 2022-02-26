@@ -1,3 +1,5 @@
+tests/assets/ckpts_folder/
+tests/assets/images_folder/
 *.pth.tar
 *.pth
 weights.npz

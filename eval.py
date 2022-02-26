@@ -1,31 +1,10 @@
-# Copyright (c) 2021-2022, InterDigital Communications, Inc
-# All rights reserved.
+'''
+# Single img
+python eval.py --single_img True --d tests/assets/test-img-link-small.jpg
 
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted (subject to the limitations in the disclaimer
-# below) provided that the following conditions are met:
-
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-# * Neither the name of InterDigital Communications, Inc nor the names of its
-#   contributors may be used to endorse or promote products derived from this
-#   software without specific prior written permission.
-
-# NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE GRANTED BY
-# THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
-# CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT
-# NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
-# PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
-# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
-# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Batch
+python eval.py --d tests/assets/images_folder/ 
+'''
 
 import argparse
 import math
@@ -37,6 +16,7 @@ from PIL import Image
 from utils import pil_to_tensor
 import io
 import time
+import os
 
 import torch
 import torch.nn as nn
@@ -62,9 +42,11 @@ class RateDistortionLoss(nn.Module):
         num_pixels = N * H * W
 
         if get_bpp:
-            out["bpp"] = bytes / num_pixels
+            out["bpp"] = sum(bytes) / num_pixels
             x_hat = output
         else:
+            if isinstance(bytes, list):
+                bytes = sum(bytes) / len(bytes)
             out["bpp"] = bytes # its BPP in case of JPEG
             x_hat = output
         mse = self.mse(x_hat, target)
@@ -94,6 +76,17 @@ def load_single_img(path, H=256, W=256):
         pil_img = im.crop((0, 0, H, W))
         x = pil_to_tensor(pil_img)
     return x, pil_img
+
+def load_batch_img(path, H=256, W=256):
+    assert(os.path.exists(path))
+    img_files = [os.path.join(path, img) for img in os.listdir(path)]
+    if len(img_files) < 1:
+        print("No images found in directory:", path)
+        raise SystemExit(1)
+
+    pil_img_list = [Image.open(img).crop((0, 0, H, W)) for img in img_files]
+    tensor_list = [pil_to_tensor(pil_img) for pil_img in pil_img_list]
+    return torch.cat(tensor_list, axis=0), pil_img_list
 
 '''
 To find the closest bpp for JPEG; we follow compressAI's evaluation scheme:
@@ -125,14 +118,13 @@ def find_closest_bpp(target, img, fmt='jpeg'):
 
 def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
     loss = AverageMeter()
-    bpp_loss = AverageMeter()
     mse_loss = AverageMeter()
     psnr_loss = AverageMeter()
     msssim_loss = AverageMeter()
     with torch.no_grad():
         out_criterion = criterion(out_net, test_img, get_bpp, bytes)
         
-        bpp_loss.update(out_criterion["bpp"])
+        bpp = out_criterion["bpp"]
         loss.update(out_criterion["loss"])
         mse_loss.update(out_criterion["mse_loss"])
         psnr_loss.update(out_criterion["PSNR"])
@@ -142,15 +134,18 @@ def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
         f"\tPSNR: {psnr_loss.avg:.3f} |"
         f"\tMS-SSIM: {msssim_loss.avg:.3f} |"
         f"\tMSE loss: {mse_loss.avg:.3f} |"
-        f"\tBpp: {bpp_loss.avg:.2f} |"
+        f"\tBpp: {bpp:.2f} |"
     )
-    return bpp_loss.avg
+    return bpp
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Evaluation script.")
     parser.add_argument(
-        "--d", type=str, required=True, help="Test image"
+        "--single_img", type=bool, required=False, default=False, help="Flag for evaluating single image"
+    )
+    parser.add_argument(
+        "--d", type=str, required=True, help="Test image in case of single image or else a folder of images"
     )
     parser.add_argument(
         "--lambda",
@@ -202,20 +197,39 @@ def run_model(model, test_img):
 def main(argv):
     args = parse_args(argv)
 
-    img_tensor, img_pil = load_single_img(args.d)
     model, criterion = load_model(args.checkpoint, args.lmbda)
+    if args.single_img:
+        img_tensor, img_pil = load_single_img(args.d)
+        x_hat, bytes_compressed, enc_time, dec_time = run_model(model, img_tensor)
+        bytes_compressed = [bytes_compressed]
+        print("Encode time in secs:", enc_time % 60)
+        print("Decoder time in secs:", dec_time % 60)
+    else:
+        img_tensor, img_pil_list = load_batch_img(args.d)
+        x_hat_list = []
+        bytes_compressed = []
+        for img in img_tensor:
+            x_hat_i, bytes_compressed_i, enc_time, dec_time = run_model(model, img.unsqueeze(0))
+            x_hat_list.append(x_hat_i)
+            bytes_compressed.append(bytes_compressed_i)
+        x_hat = torch.cat(x_hat_list, 0)
 
     print("Evaluating:", args.d)
     print("-"*50)
-    x_hat, bytes_compressed, enc_time, dec_time = run_model(model, img_tensor)
     bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True, bytes=bytes_compressed)
 
-    x_jpeg, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
-    print("Closest BPP for:", bpp_jpeg)
-    _ = evaluate(img_tensor, pil_to_tensor(x_jpeg), criterion, get_bpp=False, bytes=bpp_jpeg)
-
-    print("Encode time in secs:", enc_time % 60)
-    print("Decoder time in secs:", dec_time % 60)
+    if args.single_img:
+        x_jpeg_, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
+        x_jpeg = pil_to_tensor(x_jpeg_)
+    else:
+        x_jpeg_list = []
+        bpp_jpeg = []
+        for img_pil in img_pil_list:
+            x_jpeg_i, bpp_jpeg_i = find_closest_bpp(bpp, img_pil, fmt="jpeg")
+            x_jpeg_list.append(pil_to_tensor(x_jpeg_i))
+            bpp_jpeg.append(bpp_jpeg_i)
+        x_jpeg = torch.cat(x_jpeg_list, 0)
+    _ = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, bytes=bpp_jpeg)
 
 
 if __name__ == "__main__":
