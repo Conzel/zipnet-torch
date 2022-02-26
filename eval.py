@@ -1,6 +1,6 @@
 '''
 # Single img
-python eval.py --single_img True --d tests/assets/test-img-link-small.jpg
+python eval.py --single_img True --d tests/assets/test-img-link-small.jpg  --expname test --save_folder tests/assets/results/
 
 # Batch
 python eval.py --d tests/assets/images_folder/ 
@@ -17,6 +17,7 @@ from utils import pil_to_tensor
 import io
 import time
 import os
+import json
 
 import torch
 import torch.nn as nn
@@ -121,6 +122,7 @@ def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
     mse_loss = AverageMeter()
     psnr_loss = AverageMeter()
     msssim_loss = AverageMeter()
+    results = {}
     with torch.no_grad():
         out_criterion = criterion(out_net, test_img, get_bpp, bytes)
         
@@ -129,6 +131,11 @@ def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
         mse_loss.update(out_criterion["mse_loss"])
         psnr_loss.update(out_criterion["PSNR"])
         msssim_loss.update(out_criterion["ms-ssim"])
+
+        results["psnr"] = psnr_loss.avg
+        results["ms-ssim"] = msssim_loss.avg
+        results["bpp"] = bpp
+
     print(
         f"Average losses:"
         f"\tPSNR: {psnr_loss.avg:.3f} |"
@@ -136,7 +143,7 @@ def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
         f"\tMSE loss: {mse_loss.avg:.3f} |"
         f"\tBpp: {bpp:.2f} |"
     )
-    return bpp
+    return bpp, results
 
 
 def parse_args(argv):
@@ -146,6 +153,12 @@ def parse_args(argv):
     )
     parser.add_argument(
         "--d", type=str, required=True, help="Test image in case of single image or else a folder of images"
+    )
+    parser.add_argument(
+        "--expname", type=str, required=True, help="Name of the experiment"
+    )
+    parser.add_argument(
+        "--save_folder", type=str, required=True, help="folder to dump json files"
     )
     parser.add_argument(
         "--lambda",
@@ -194,8 +207,20 @@ def run_model(model, test_img):
     num = 32 / 8 # compressed is uint32
     return x_hat_constriction, compressed.size * num, enc_time, dec_time
 
+def save_json(args, results):
+    json_save_path = os.path.join(args.save_folder, args.expname + ".json")
+    output_dict = {}
+    output_dict["name"] = args.expname
+    output_dict["results"] = results
+    json_data = json.dumps(output_dict)
+    jsonFile = open(json_save_path, "w")
+    jsonFile.write(json_data)
+    jsonFile.close()
+    print("saved json at:", json_save_path)
+
 def main(argv):
     args = parse_args(argv)
+    os.makedirs(args.save_folder, exist_ok=True)
 
     model, criterion = load_model(args.checkpoint, args.lmbda)
     if args.single_img:
@@ -216,7 +241,8 @@ def main(argv):
 
     print("Evaluating:", args.d)
     print("-"*50)
-    bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True, bytes=bytes_compressed)
+    bpp, results = evaluate(img_tensor, x_hat, criterion, get_bpp=True, bytes=bytes_compressed)
+    save_json(args, results)
 
     if args.single_img:
         x_jpeg_, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
@@ -229,7 +255,9 @@ def main(argv):
             x_jpeg_list.append(pil_to_tensor(x_jpeg_i))
             bpp_jpeg.append(bpp_jpeg_i)
         x_jpeg = torch.cat(x_jpeg_list, 0)
-    _ = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, bytes=bpp_jpeg)
+    _, results_jpeg = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, bytes=bpp_jpeg)
+    args.expname = args.expname + "_jpeg"
+    save_json(args, results_jpeg)
 
 
 if __name__ == "__main__":
