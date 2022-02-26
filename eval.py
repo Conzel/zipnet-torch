@@ -117,12 +117,11 @@ def find_closest_bpp(target, img, fmt='jpeg'):
             lower = mid
     return rec, bpp
 
-def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
+def evaluate(test_img, out_net, criterion, get_bpp, results, bytes=None):
     loss = AverageMeter()
     mse_loss = AverageMeter()
     psnr_loss = AverageMeter()
     msssim_loss = AverageMeter()
-    results = {}
     with torch.no_grad():
         out_criterion = criterion(out_net, test_img, get_bpp, bytes)
         
@@ -132,9 +131,9 @@ def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
         psnr_loss.update(out_criterion["PSNR"])
         msssim_loss.update(out_criterion["ms-ssim"])
 
-        results["psnr"] = psnr_loss.avg
-        results["ms-ssim"] = msssim_loss.avg
-        results["bpp"] = bpp
+        results["psnr"].append(psnr_loss.avg)
+        results["ms-ssim"].append(msssim_loss.avg)
+        results["bpp"].append(bpp)
 
     print(
         f"Average losses:"
@@ -143,7 +142,7 @@ def evaluate(test_img, out_net, criterion, get_bpp, bytes=None):
         f"\tMSE loss: {mse_loss.avg:.3f} |"
         f"\tBpp: {bpp:.2f} |"
     )
-    return bpp, results
+    return bpp
 
 
 def parse_args(argv):
@@ -153,6 +152,9 @@ def parse_args(argv):
     )
     parser.add_argument(
         "--d", type=str, required=True, help="Test image in case of single image or else a folder of images"
+    )
+    parser.add_argument(
+        "--single_ckpt", type=bool, required=False, default=False, help="Flag for evaluating single image"
     )
     parser.add_argument(
         "--expname", type=str, required=True, help="Name of the experiment"
@@ -218,44 +220,64 @@ def save_json(args, results):
     jsonFile.close()
     print("saved json at:", json_save_path)
 
+def init_dict(results_dict):
+    results_dict["psnr"] = []
+    results_dict["ms-ssim"] = []
+    results_dict["bpp"] = []
+
 def main(argv):
     args = parse_args(argv)
     os.makedirs(args.save_folder, exist_ok=True)
+    results = {}
+    results_jpeg = {}
+    init_dict(results)
+    init_dict(results_jpeg)
 
-    model, criterion = load_model(args.checkpoint, args.lmbda)
-    if args.single_img:
-        img_tensor, img_pil = load_single_img(args.d)
-        x_hat, bytes_compressed, enc_time, dec_time = run_model(model, img_tensor)
-        bytes_compressed = [bytes_compressed]
-        print("Encode time in secs:", enc_time % 60)
-        print("Decoder time in secs:", dec_time % 60)
+    if args.single_ckpt:
+        checkpoint_list = [args.checkpoint]
     else:
-        img_tensor, img_pil_list = load_batch_img(args.d)
-        x_hat_list = []
-        bytes_compressed = []
-        for img in img_tensor:
-            x_hat_i, bytes_compressed_i, enc_time, dec_time = run_model(model, img.unsqueeze(0))
-            x_hat_list.append(x_hat_i)
-            bytes_compressed.append(bytes_compressed_i)
-        x_hat = torch.cat(x_hat_list, 0)
+        if not os.path.isdir(args.checkpoint):
+            print("Provided path:", args.checkpoint, "is not a valid directory of checkpoints")
+            raise SystemExit(1)
+        checkpoint_list = [os.path.join(args.checkpoint, ckpt) for ckpt in os.listdir(args.checkpoint)]
 
-    print("Evaluating:", args.d)
-    print("-"*50)
-    bpp, results = evaluate(img_tensor, x_hat, criterion, get_bpp=True, bytes=bytes_compressed)
+    for ckpt in checkpoint_list:
+        model, criterion = load_model(ckpt, args.lmbda)
+        if args.single_img:
+            img_tensor, img_pil = load_single_img(args.d)
+            x_hat, bytes_compressed, enc_time, dec_time = run_model(model, img_tensor)
+            bytes_compressed = [bytes_compressed]
+            print("Encode time in secs:", enc_time % 60)
+            print("Decoder time in secs:", dec_time % 60)
+        else:
+            img_tensor, img_pil_list = load_batch_img(args.d)
+            x_hat_list = []
+            bytes_compressed = []
+            for img in img_tensor:
+                x_hat_i, bytes_compressed_i, enc_time, dec_time = run_model(model, img.unsqueeze(0))
+                x_hat_list.append(x_hat_i)
+                bytes_compressed.append(bytes_compressed_i)
+            x_hat = torch.cat(x_hat_list, 0)
+
+        print("Evaluating:", args.d)
+        print("-"*50)
+        bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True, results=results, bytes=bytes_compressed)
+
+
+        if args.single_img:
+            x_jpeg_, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
+            x_jpeg = pil_to_tensor(x_jpeg_)
+        else:
+            x_jpeg_list = []
+            bpp_jpeg = []
+            for img_pil in img_pil_list:
+                x_jpeg_i, bpp_jpeg_i = find_closest_bpp(bpp, img_pil, fmt="jpeg")
+                x_jpeg_list.append(pil_to_tensor(x_jpeg_i))
+                bpp_jpeg.append(bpp_jpeg_i)
+            x_jpeg = torch.cat(x_jpeg_list, 0)
+        _ = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, results=results_jpeg, bytes=bpp_jpeg)
+
     save_json(args, results)
-
-    if args.single_img:
-        x_jpeg_, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
-        x_jpeg = pil_to_tensor(x_jpeg_)
-    else:
-        x_jpeg_list = []
-        bpp_jpeg = []
-        for img_pil in img_pil_list:
-            x_jpeg_i, bpp_jpeg_i = find_closest_bpp(bpp, img_pil, fmt="jpeg")
-            x_jpeg_list.append(pil_to_tensor(x_jpeg_i))
-            bpp_jpeg.append(bpp_jpeg_i)
-        x_jpeg = torch.cat(x_jpeg_list, 0)
-    _, results_jpeg = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, bytes=bpp_jpeg)
     args.expname = args.expname + "_jpeg"
     save_json(args, results_jpeg)
 
