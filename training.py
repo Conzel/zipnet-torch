@@ -32,7 +32,7 @@ import math
 import random
 import shutil
 import sys
-from models import FactorizedPrior
+from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorRelu
 
 import torch
 import torch.nn as nn
@@ -207,6 +207,11 @@ def parse_args(argv):
     parser.add_argument(
         "-d", "--dataset", type=str, required=True, help="Training dataset"
     )
+
+    parser.add_argument(
+        "-m", "--model", type=str, required=True, help="Model to train"
+    )
+
     parser.add_argument(
         "-e",
         "--epochs",
@@ -280,6 +285,17 @@ def parse_args(argv):
     return args
 
 
+def get_model(model_name: str):
+    if model_name.lower() == "fp_relu":
+        return FactorizedPriorRelu
+    elif model_name.lower() == "fp_gdn":
+        return FactorizedPriorGdn
+    elif model_name.lower() == "fp_gdn_upsampling":
+        return FactorizedPriorGdnUpsampling
+    else: 
+        raise ValueError(f"Model name {model_name} not recognized")
+
+
 def main(argv):
     args = parse_args(argv)
 
@@ -319,7 +335,7 @@ def main(argv):
         pin_memory=(device == "cuda"),
     )
 
-    net = FactorizedPrior(128, 192)
+    net = get_model(args.model)(128, 192)
     net = net.to(device)
 
     if args.cuda and torch.cuda.device_count() > 1:
