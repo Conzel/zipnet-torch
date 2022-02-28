@@ -60,6 +60,6 @@ if __name__ == "__main__":
         'entropy_bottleneck._cdf_length'
     }
 
-    exported_dict = {key: new_dict[key] for key in keys_to_export}
+    exported_dict = {key: state_dict[key] for key in keys_to_export}
     exported_dict["entropy_bottleneck._medians"] = state_dict["entropy_bottleneck.quantiles"][:, :, 1:2].squeeze()
     np.savez("weights.npz", **exported_dict)
