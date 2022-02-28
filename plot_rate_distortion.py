@@ -27,6 +27,8 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
+python plot_rate_distortion.py --results-file tests/assets/results/test.json tests/assets/results/test_jpeg.json --show
+
 Simple plotting utility to display Rate-Distortion curves (RD) comparison
 between codecs.
 """
@@ -86,6 +88,7 @@ def matplotlib_plt(
     if figsize is None:
         figsize = (9, 6)
     fig, ax = plt.subplots(figsize=figsize)
+    # jpeg
     for sc in scatters:
         if any(x in sc["name"] for x in hybrid_matches):
             linestyle = "--"

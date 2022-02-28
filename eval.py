@@ -1,9 +1,9 @@
 '''
-# Single img
-python eval.py --single_img True --d tests/assets/test-img-link-small.jpg  --expname test --save_folder tests/assets/results/
+# Single img ; single ckpt
+python eval.py --single_img True --d tests/assets/test-img-link-small.jpg --single_ckpt --expname test --save_folder tests/assets/results/
 
-# Batch
-python eval.py --d tests/assets/images_folder/ 
+# Batch ; folder of ckpt
+python eval.py --d tests/assets/images_folder/ --checkpoint True <ckpt directory>
 '''
 
 import argparse
@@ -111,10 +111,15 @@ def find_closest_bpp(target, img, fmt='jpeg'):
         if int(mid) == int(prev_mid):
             break
         rec, bpp = pillow_encode(img, fmt=fmt, quality=int(mid))
+        print(mid, bpp)
         if bpp > target:
             upper = mid - 1
         else:
             lower = mid
+    return rec, bpp
+
+def bpp_plot_jpeg(quality, img, fmt='jpeg'):
+    rec, bpp = pillow_encode(img, fmt=fmt, quality=int(quality))
     return rec, bpp
 
 def evaluate(test_img, out_net, criterion, get_bpp, results, bytes=None):
@@ -209,10 +214,13 @@ def run_model(model, test_img):
     num = 32 / 8 # compressed is uint32
     return x_hat_constriction, compressed.size * num, enc_time, dec_time
 
-def save_json(args, results):
+def save_json(args, results, jpeg=False):
     json_save_path = os.path.join(args.save_folder, args.expname + ".json")
     output_dict = {}
-    output_dict["name"] = args.expname
+    if jpeg == True:
+        output_dict["name"] = "JPEG"
+    else:
+        output_dict["name"] = args.expname
     output_dict["results"] = results
     json_data = json.dumps(output_dict)
     jsonFile = open(json_save_path, "w")
@@ -263,23 +271,24 @@ def main(argv):
         print("-"*50)
         bpp = evaluate(img_tensor, x_hat, criterion, get_bpp=True, results=results, bytes=bytes_compressed)
 
-
         if args.single_img:
-            x_jpeg_, bpp_jpeg = find_closest_bpp(bpp, img_pil, fmt="jpeg") 
-            x_jpeg = pil_to_tensor(x_jpeg_)
+            for i in range(0, 70):
+                x_jpeg, bpp_jpeg = bpp_plot_jpeg(i, img_pil, fmt='jpeg')
+                _ = evaluate(img_tensor, pil_to_tensor(x_jpeg), criterion, get_bpp=False, results=results_jpeg, bytes=bpp_jpeg)
         else:
-            x_jpeg_list = []
-            bpp_jpeg = []
-            for img_pil in img_pil_list:
-                x_jpeg_i, bpp_jpeg_i = find_closest_bpp(bpp, img_pil, fmt="jpeg")
-                x_jpeg_list.append(pil_to_tensor(x_jpeg_i))
-                bpp_jpeg.append(bpp_jpeg_i)
-            x_jpeg = torch.cat(x_jpeg_list, 0)
-        _ = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, results=results_jpeg, bytes=bpp_jpeg)
+            for i in range(0, 70):
+                x_jpeg_list = []
+                bpp_jpeg = []
+                for img_pil in img_pil_list:
+                    x_jpeg_i, bpp_jpeg_i = bpp_plot_jpeg(i, img_pil, fmt='jpeg')
+                    x_jpeg_list.append(pil_to_tensor(x_jpeg_i))
+                    bpp_jpeg.append(bpp_jpeg_i)
+                x_jpeg = torch.cat(x_jpeg_list, 0)
+                _ = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, results=results_jpeg, bytes=bpp_jpeg)
 
     save_json(args, results)
     args.expname = args.expname + "_jpeg"
-    save_json(args, results_jpeg)
+    save_json(args, results_jpeg, jpeg=True)
 
 
 if __name__ == "__main__":
