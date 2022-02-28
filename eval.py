@@ -214,13 +214,10 @@ def run_model(model, test_img):
     num = 32 / 8 # compressed is uint32
     return x_hat_constriction, compressed.size * num, enc_time, dec_time
 
-def save_json(args, results, jpeg=False):
+def save_json(args, results, name):
     json_save_path = os.path.join(args.save_folder, args.expname + ".json")
     output_dict = {}
-    if jpeg == True:
-        output_dict["name"] = "JPEG"
-    else:
-        output_dict["name"] = args.expname
+    output_dict["name"] = name
     output_dict["results"] = results
     json_data = json.dumps(output_dict)
     jsonFile = open(json_save_path, "w")
@@ -286,9 +283,9 @@ def main(argv):
                 x_jpeg = torch.cat(x_jpeg_list, 0)
                 _ = evaluate(img_tensor, x_jpeg, criterion, get_bpp=False, results=results_jpeg, bytes=bpp_jpeg)
 
-    save_json(args, results)
+    save_json(args, results, name="ours")
     args.expname = args.expname + "_jpeg"
-    save_json(args, results_jpeg, jpeg=True)
+    save_json(args, results_jpeg, name="JPEG")
 
 
 if __name__ == "__main__":
