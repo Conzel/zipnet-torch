@@ -368,7 +368,7 @@ def main(argv):
                     "lr_scheduler": lr_scheduler.state_dict(),
                 },
                 is_best,
-                filename=f"checkpoint-lambda={args.lmbda:.3f}.pth.tar"
+                filename=f"checkpoint-lambda={args.lmbda:.3g}.pth.tar"
             )
 
 
