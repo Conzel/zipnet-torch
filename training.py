@@ -32,6 +32,8 @@ import math
 import random
 import shutil
 import sys
+
+import numpy as np
 from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorGdnUpsamplingBalle, FactorizedPriorRelu
 
 import torch
@@ -40,6 +42,8 @@ import torch.optim as optim
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.utils import make_grid
+from torch.utils.tensorboard import SummaryWriter
 
 from utils import ImageNetDataset
 from compressai.zoo import models
@@ -129,7 +133,7 @@ def configure_optimizers(net, args):
 
 
 def train_one_epoch(
-    model, criterion, train_dataloader, optimizer, aux_optimizer, epoch, clip_max_norm
+    model, criterion, train_dataloader, optimizer, aux_optimizer, epoch, clip_max_norm, writer=None
 ):
     model.train()
     device = next(model.parameters()).device
@@ -162,9 +166,16 @@ def train_one_epoch(
                 f'\tBpp loss: {out_criterion["bpp_loss"].item():.2f} |'
                 f"\tAux loss: {aux_loss.item():.2f}"
             )
+        if writer is not None:
+            writer.add_scalar("MSE-loss/train",
+                              out_criterion["loss"].item(), i)
+            writer.add_scalar(
+                "Loss/train", out_criterion["mse_loss"].item(), i)
+            writer.add_scalar("BPP-loss/train",
+                              out_criterion["bpp_loss"].item(), i)
 
 
-def test_epoch(epoch, test_dataloader, model, criterion):
+def test_epoch(epoch, test_dataloader, model, criterion, writer=None):
     model.eval()
     device = next(model.parameters()).device
 
@@ -191,6 +202,14 @@ def test_epoch(epoch, test_dataloader, model, criterion):
         f"\tBpp loss: {bpp_loss.avg:.2f} |"
         f"\tAux loss: {aux_loss.avg:.2f}\n"
     )
+    if writer is not None:
+        writer.add_scalar("MSE-loss/test", mse_loss.avg, epoch)
+        writer.add_scalar("BPP-loss/test", bpp_loss.avg, epoch)
+        writer.add_scalar("Loss/test", loss.avg, epoch)
+        example_imgs = next(iter(test_dataloader))[[0, 1, 2], :, :, :]
+        recs = model(example_imgs)
+        writer.add_images("Image reconstructions",
+                          torch.cat((example_imgs, recs["x_hat"]), dim=0), epoch)
 
     return loss.avg
 
@@ -279,7 +298,8 @@ def parse_args(argv):
         type=float,
         help="gradient clipping max norm (default: %(default)s",
     )
-    parser.add_argument("--checkpoint", type=str, help="Path to a checkpoint")
+    parser.add_argument("--checkpoint", type=str,
+                        help="Path to a checkpoint")
     args = parser.parse_args(argv)
     return args
 
@@ -299,6 +319,7 @@ def get_model(model_name: str):
 
 def main(argv):
     args = parse_args(argv)
+    writer = SummaryWriter()
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -358,7 +379,10 @@ def main(argv):
 
     best_loss = float("inf")
     for epoch in range(last_epoch, args.epochs):
-        print(f"Learning rate: {optimizer.param_groups[0]['lr']}")
+        lr = optimizer.param_groups[0]['lr']
+        print(f"Learning rate: {lr}")
+        if writer is not None:
+            writer.add_scalar("Learning rate", lr, epoch)
         train_one_epoch(
             net,
             criterion,
@@ -367,8 +391,9 @@ def main(argv):
             aux_optimizer,
             epoch,
             args.clip_max_norm,
+            writer
         )
-        loss = test_epoch(epoch, test_dataloader, net, criterion)
+        loss = test_epoch(epoch, test_dataloader, net, criterion, writer)
         lr_scheduler.step(loss)
 
         is_best = loss < best_loss

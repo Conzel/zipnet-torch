@@ -4,7 +4,9 @@ channels:
 dependencies:
   - python=3.9
   - pytorch=1.10.*
+  - tensorboard=2.8.*
   - pip:
     - constriction=0.2.*
     - compressai=1.1.*
+    - setuptools=59.5.0
 prefix: /opt/homebrew/Caskroom/mambaforge/base/envs/zipnet-torch

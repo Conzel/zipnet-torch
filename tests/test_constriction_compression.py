@@ -122,8 +122,6 @@ def prepare_model_and_image():
 
     with Image.open(os.path.join(dirname(__file__), "assets/test-img-link-small.jpg")) as im:
         x = pil_to_tensor(im.crop((0, 0, 256, 256)))
-        print(x.shape)
-        raise ValueError
 
     return model, x
 
