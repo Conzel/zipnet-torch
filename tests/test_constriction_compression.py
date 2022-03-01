@@ -92,7 +92,7 @@ def test_symbols_retained_during_compression():
     y -> make_symbols -> compress -> decompress -> unmake symbols -> y_hat
 
     The mock quantization function provides this:
-    y --------------------- mock quantization ---------------------> y_hat 
+    y --------------------- mock quantization ---------------------> y_hat
 
     These two should be identical
     """
@@ -122,6 +122,8 @@ def prepare_model_and_image():
 
     with Image.open(os.path.join(dirname(__file__), "assets/test-img-link-small.jpg")) as im:
         x = pil_to_tensor(im.crop((0, 0, 256, 256)))
+        print(x.shape)
+        raise ValueError
 
     return model, x
 
@@ -158,7 +160,7 @@ def test_performance_against_compressai_implementation():
 
 def test_model_implementations():
     """
-    Tests the implementations that we gave the FactorizedPrior Model against 
+    Tests the implementations that we gave the FactorizedPrior Model against
     the direct ones.
     """
     model, x = prepare_model_and_image()
@@ -173,3 +175,9 @@ def test_model_implementations():
     # Mini-regression test
     assert mse_constriction == 0.0018695825710892677
     assert bytes_constriction == 5144
+
+    compressed_, y_quant_, x_hat_constriction_ = model.compress_decompress_constriction(
+        x)
+    assert (compressed_ == compressed).all()
+    assert (y_quant_ == y_quant).all()
+    assert (x_hat_constriction_ == x_hat_constriction).all()
