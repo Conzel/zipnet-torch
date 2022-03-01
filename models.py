@@ -27,8 +27,10 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from typing import OrderedDict
+from typing import Callable, Optional, OrderedDict
 import warnings
+import numpy as np
+import torch
 
 import torch.nn as nn
 
@@ -36,6 +38,7 @@ from compressai.entropy_models import EntropyBottleneck
 from compressai.layers import GDN
 
 from utils import conv, conv_transpose, update_registered_buffers
+from compression import decompress_symbols, encompression_decompression_run, unmake_symbols
 
 
 class CompressionModel(nn.Module):
@@ -115,8 +118,8 @@ class FactorizedPrior(CompressionModel):
         super().__init__(entropy_bottleneck_channels=M, **kwargs)
         self.N = N
         self.M = M
-        self.synthesis_transform = None
-        self.analysis_transform = None
+        self.synthesis_transform: Callable
+        self.analysis_transform: Callable
 
     @property
     def downsampling_factor(self) -> int:
@@ -144,6 +147,42 @@ class FactorizedPrior(CompressionModel):
         y_hat = self.entropy_bottleneck.decompress(strings[0], shape)
         x_hat = self.synthesis_transform(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
+
+    def compress_decompress_constriction(self, x: np.ndarray):
+        """
+        Performs both compression and decompression on an image. 
+        Used for debugging and performance analysis.
+        """
+        medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        y = self.analysis_transform(x)
+        compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), self.entropy_bottleneck._quantized_cdf.numpy(
+        ), self.entropy_bottleneck._offset.numpy(), self.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+        x_hat_constriction = self.synthesis_transform(
+            torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
+        return compressed, y_quant, x_hat_constriction
+
+    def compress_constriction(self, x: torch.Tensor):
+        """
+        Compresses an using constriction.
+        """
+        medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        y = self.analysis_transform(x)
+        compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), self.entropy_bottleneck._quantized_cdf.numpy(
+        ), self.entropy_bottleneck._offset.numpy(), self.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+        return compressed, y_quant
+
+    def decompress_constriction(self, compressed_representation: np.ndarray, latent_shape: tuple):
+        """
+        Decompresses a compressed representation of an image using constriction.
+        """
+        medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        offsets = self.entropy_bottleneck._offset.numpy()
+        decompressed_symbols = decompress_symbols(
+            compressed_representation, latent_shape, self.entropy_bottleneck._quantized_cdf.numpy(), self.entropy_bottleneck._cdf_length.numpy(), 16)
+        y_tilde = unmake_symbols(decompressed_symbols, offsets, medians)
+        x_hat_constriction = self.synthesis_transform(
+            torch.Tensor(y_tilde[None, :, :, :])).clamp_(0, 1)
+        return x_hat_constriction
 
 
 class FactorizedPriorRelu(FactorizedPrior):
@@ -237,6 +276,39 @@ class FactorizedPriorGdnUpsampling(FactorizedPrior):
                 ("igdn0", GDN(N, inverse=True)),
                 ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs1", conv(N, N, stride=1)),
+                ("igdn1", GDN(N, inverse=True)),
+                ("upsample2", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs2", conv(N, N, stride=1)),
+                ("igdn2", GDN(N, inverse=True)),
+                ("upsample3", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs3", conv(N, 3, stride=1)),
+            ]))
+
+
+class FactorizedPriorGdnUpsamplingBalle(FactorizedPrior):
+    """
+    Directly taken from the original paper "End-to-End optimized image compression", Balle et al, 2016
+    This seems to run a bit slow.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N, kernel_size=9, stride=4)),
+                ("gdn0", GDN(N)),
+                ("conv1", conv(N, N)),
+                ("gdn2", GDN(N)),
+                ("conv2", conv(N, M)),
+                ("gdn3", GDN(M)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("igdn0", GDN(M, inverse=True)),
+                ("upsample0", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs0", conv(M, N, stride=1)),
                 ("igdn1", GDN(N, inverse=True)),
                 ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs1", conv(N, N, stride=1)),
