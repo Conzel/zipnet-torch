@@ -5,7 +5,7 @@ import numpy as np
 from compressai._CXX import pmf_to_quantized_cdf
 import torch
 from export_weights import clean_checkpoint_data_parallel
-from models import FactorizedPrior
+from models import FactorizedPrior, FactorizedPriorRelu
 from PIL import Image
 from utils import pil_to_tensor
 
@@ -109,41 +109,67 @@ def test_symbols_retained_during_compression():
     assert np.allclose(y_restored, y_quant_mock)
 
 
-def test_performance_against_compressai_implementation():
+def prepare_model_and_image():
     checkpoint = torch.load(os.path.join(dirname(__file__), "assets/checkpoint.pth.tar"),
                             map_location=torch.device("cpu"))
 
     new_dict = clean_checkpoint_data_parallel(checkpoint)
 
     # Restoring the model
-    model = FactorizedPrior(128, 192)
+    model = FactorizedPriorRelu(128, 192)
     model.load_state_dict(new_dict)
     model.update()
 
     with Image.open(os.path.join(dirname(__file__), "assets/test-img-link-small.jpg")) as im:
         x = pil_to_tensor(im.crop((0, 0, 256, 256)))
-        # the implementation by CompressAI
-        s = model.compress(x)
-        bytes_cpai = len(s['strings'][0][0])
-        x_hat = model.decompress(s["strings"], s["shape"])["x_hat"]
-        print(x.shape, x_hat.shape)
-        mse_cpai = (x - x_hat).pow(2).mean().item()
 
-        # our implementation
-        medians = model.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
-        y = model.analysis_transform(x)
-        compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), model.entropy_bottleneck._quantized_cdf.numpy(
-        ), model.entropy_bottleneck._offset.numpy(), model.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+    return model, x
 
-        x_hat_constriction = model.synthesis_transform(
-            torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
-        bytes_constriction = compressed.size*4  # *32/8, as compress is uint32-array
-        mse_constriction = (x - x_hat_constriction).pow(2).mean().item()
+
+def test_performance_against_compressai_implementation():
+    model, x = prepare_model_and_image()
+
+    # the implementation by CompressAI
+    s = model.compress(x)
+    bytes_cpai = len(s['strings'][0][0])
+    x_hat = model.decompress(s["strings"], s["shape"])["x_hat"]
+    print(x.shape, x_hat.shape)
+    mse_cpai = (x - x_hat).pow(2).mean().item()
+
+    # our implementation
+    medians = model.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+    y = model.analysis_transform(x)
+    compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), model.entropy_bottleneck._quantized_cdf.numpy(
+    ), model.entropy_bottleneck._offset.numpy(), model.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+
+    x_hat_constriction = model.synthesis_transform(
+        torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
+    bytes_constriction = compressed.size*4  # *32/8, as compress is uint32-array
+    mse_constriction = (x - x_hat_constriction).pow(2).mean().item()
 
     print(f"MSE reached: {mse_constriction}")
     print(f"Bytes used: {bytes_constriction}")
     assert mse_cpai == mse_constriction
     assert np.abs(bytes_cpai - bytes_constriction) < 10
+    # Mini-regression test
+    assert mse_constriction == 0.0018695825710892677
+    assert bytes_constriction == 5144
+
+
+def test_model_implementations():
+    """
+    Tests the implementations that we gave the FactorizedPrior Model against 
+    the direct ones.
+    """
+    model, x = prepare_model_and_image()
+    compressed, y_quant = model.compress_constriction(x)
+    x_hat_constriction = model.decompress_constriction(
+        compressed, y_quant.shape)
+    bytes_constriction = compressed.size*4  # *32/8, as compress is uint32-array
+    mse_constriction = (x - x_hat_constriction).pow(2).mean().item()
+
+    print(f"MSE reached: {mse_constriction}")
+    print(f"Bytes used: {bytes_constriction}")
     # Mini-regression test
     assert mse_constriction == 0.0018695825710892677
     assert bytes_constriction == 5144
