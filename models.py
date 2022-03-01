@@ -231,9 +231,9 @@ class FactorizedPriorGdn(FactorizedPrior):
                 ("conv0", conv(3, N)),
                 ("gdn0", GDN(N)),
                 ("conv1", conv(N, N)),
-                ("gdn2", GDN(N)),
+                ("gdn1", GDN(N)),
                 ("conv2", conv(N, N)),
-                ("gdn3", GDN(N)),
+                ("gdn2", GDN(N)),
                 ("conv3", conv(N, M)),
             ]))
 
