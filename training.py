@@ -32,7 +32,7 @@ import math
 import random
 import shutil
 import sys
-from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorRelu
+from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorGdnUpsamplingBalle, FactorizedPriorRelu
 
 import torch
 import torch.nn as nn
@@ -108,7 +108,6 @@ def configure_optimizers(net, args):
         for n, p in net.named_parameters()
         if n.endswith(".quantiles") and p.requires_grad
     }
-    print(aux_parameters)
 
     # Make sure we don't have an intersection of parameters
     params_dict = dict(net.named_parameters())
@@ -287,12 +286,14 @@ def parse_args(argv):
 
 def get_model(model_name: str):
     if model_name.lower() == "fp_relu":
-        return FactorizedPriorRelu
+        return FactorizedPriorRelu(128, 192)
     elif model_name.lower() == "fp_gdn":
-        return FactorizedPriorGdn
+        return FactorizedPriorGdn(128, 192)
     elif model_name.lower() == "fp_gdn_upsampling":
-        return FactorizedPriorGdnUpsampling
-    else: 
+        return FactorizedPriorGdnUpsampling(128, 192)
+    elif model_name.lower() == "fp_gdn_upsampling_balle":
+        return FactorizedPriorGdnUpsamplingBalle(192, 192)
+    else:
         raise ValueError(f"Model name {model_name} not recognized")
 
 
@@ -335,7 +336,7 @@ def main(argv):
         pin_memory=(device == "cuda"),
     )
 
-    net = get_model(args.model)(128, 192)
+    net = get_model(args.model)
     net = net.to(device)
 
     if args.cuda and torch.cuda.device_count() > 1:
@@ -384,7 +385,7 @@ def main(argv):
                     "lr_scheduler": lr_scheduler.state_dict(),
                 },
                 is_best,
-                filename=f"checkpoint-lambda={args.lmbda:.3g}.pth.tar"
+                filename=f"checkpoint-model={args.model}-lambda={args.lmbda:.3g}.pth.tar"
             )
 
 

@@ -238,9 +238,9 @@ class FactorizedPriorGdnUpsampling(FactorizedPrior):
                 ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs1", conv(N, N, stride=1)),
                 ("igdn1", GDN(N, inverse=True)),
-                ("upsample2", nn.Upsample(scale_factor=2, mode="nearest")),
-                ("convs2", conv(N, N, stride=1)),
+                ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs1", conv(N, N, stride=1)),
                 ("igdn2", GDN(N, inverse=True)),
-                ("upsample3", nn.Upsample(scale_factor=2, mode="nearest")),
-                ("convs3", conv(N, 3, stride=1)),
+                ("upsample2", nn.Upsample(scale_factor=4, mode="nearest")),
+                ("convs2", conv(N, 3, kernel_size=9, stride=1)),
             ]))
