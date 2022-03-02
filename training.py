@@ -339,6 +339,9 @@ def main(argv):
     test_dataset = ImageNetDataset(
         args.dataset, split="val", transform=test_transforms, num_samples=args.num_samples)
 
+    if args.cuda and not torch.cuda.is_available():
+        raise ValueError("CUDA is not available but was requested")
+
     device = "cuda" if args.cuda and torch.cuda.is_available() else "cpu"
 
     train_dataloader = DataLoader(
