@@ -3,6 +3,7 @@ tests/assets/images_folder/
 *.pth.tar
 *.pth
 weights.npz
+runs
 
 # Created by https://www.toptal.com/developers/gitignore/api/python
 # Edit at https://www.toptal.com/developers/gitignore?templates=python

@@ -32,7 +32,9 @@ import math
 import random
 import shutil
 import sys
-from models import FactorizedPrior
+
+import numpy as np
+from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorGdnUpsamplingBalle, FactorizedPriorRelu
 
 import torch
 import torch.nn as nn
@@ -40,6 +42,8 @@ import torch.optim as optim
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.utils import make_grid
+from torch.utils.tensorboard import SummaryWriter
 
 from utils import ImageNetDataset
 from compressai.zoo import models
@@ -108,7 +112,6 @@ def configure_optimizers(net, args):
         for n, p in net.named_parameters()
         if n.endswith(".quantiles") and p.requires_grad
     }
-    print(aux_parameters)
 
     # Make sure we don't have an intersection of parameters
     params_dict = dict(net.named_parameters())
@@ -130,7 +133,7 @@ def configure_optimizers(net, args):
 
 
 def train_one_epoch(
-    model, criterion, train_dataloader, optimizer, aux_optimizer, epoch, clip_max_norm
+    model, criterion, train_dataloader, optimizer, aux_optimizer, epoch, clip_max_norm, writer=None
 ):
     model.train()
     device = next(model.parameters()).device
@@ -163,9 +166,16 @@ def train_one_epoch(
                 f'\tBpp loss: {out_criterion["bpp_loss"].item():.2f} |'
                 f"\tAux loss: {aux_loss.item():.2f}"
             )
+        if writer is not None:
+            writer.add_scalar("MSE-loss/train",
+                              out_criterion["loss"].item(), i)
+            writer.add_scalar(
+                "Loss/train", out_criterion["mse_loss"].item(), i)
+            writer.add_scalar("BPP-loss/train",
+                              out_criterion["bpp_loss"].item(), i)
 
 
-def test_epoch(epoch, test_dataloader, model, criterion):
+def test_epoch(epoch, test_dataloader, model, criterion, writer=None):
     model.eval()
     device = next(model.parameters()).device
 
@@ -192,6 +202,15 @@ def test_epoch(epoch, test_dataloader, model, criterion):
         f"\tBpp loss: {bpp_loss.avg:.2f} |"
         f"\tAux loss: {aux_loss.avg:.2f}\n"
     )
+    if writer is not None:
+        writer.add_scalar("MSE-loss/test", mse_loss.avg, epoch)
+        writer.add_scalar("BPP-loss/test", bpp_loss.avg, epoch)
+        writer.add_scalar("Loss/test", loss.avg, epoch)
+        example_imgs = next(iter(test_dataloader))[
+            [0, 1, 2], :, :, :].to(device)
+        recs = model(example_imgs)
+        writer.add_images("Image reconstructions",
+                          torch.cat((example_imgs, recs["x_hat"]), dim=0), epoch)
 
     return loss.avg
 
@@ -199,7 +218,7 @@ def test_epoch(epoch, test_dataloader, model, criterion):
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, "checkpoint_best_loss.pth.tar")
+        shutil.copyfile(filename, f"{filename[:-8]}-best.pth.tar")
 
 
 def parse_args(argv):
@@ -207,6 +226,11 @@ def parse_args(argv):
     parser.add_argument(
         "-d", "--dataset", type=str, required=True, help="Training dataset"
     )
+
+    parser.add_argument(
+        "-m", "--model", type=str, required=True, help="Model to train"
+    )
+
     parser.add_argument(
         "-e",
         "--epochs",
@@ -275,13 +299,28 @@ def parse_args(argv):
         type=float,
         help="gradient clipping max norm (default: %(default)s",
     )
-    parser.add_argument("--checkpoint", type=str, help="Path to a checkpoint")
+    parser.add_argument("--checkpoint", type=str,
+                        help="Path to a checkpoint")
     args = parser.parse_args(argv)
     return args
 
 
+def get_model(model_name: str):
+    if model_name.lower() == "fp_relu":
+        return FactorizedPriorRelu(128, 192)
+    elif model_name.lower() == "fp_gdn":
+        return FactorizedPriorGdn(128, 192)
+    elif model_name.lower() == "fp_gdn_upsampling":
+        return FactorizedPriorGdnUpsampling(128, 192)
+    elif model_name.lower() == "fp_gdn_upsampling_balle":
+        return FactorizedPriorGdnUpsamplingBalle(192, 192)
+    else:
+        raise ValueError(f"Model name {model_name} not recognized")
+
+
 def main(argv):
     args = parse_args(argv)
+    writer = SummaryWriter(f"runs/lambda={args.lmbda}_model={args.model}")
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -301,6 +340,9 @@ def main(argv):
     test_dataset = ImageNetDataset(
         args.dataset, split="val", transform=test_transforms, num_samples=args.num_samples)
 
+    if args.cuda and not torch.cuda.is_available():
+        raise ValueError("CUDA is not available but was requested")
+
     device = "cuda" if args.cuda and torch.cuda.is_available() else "cpu"
 
     train_dataloader = DataLoader(
@@ -319,7 +361,7 @@ def main(argv):
         pin_memory=(device == "cuda"),
     )
 
-    net = FactorizedPrior(128, 192)
+    net = get_model(args.model)
     net = net.to(device)
 
     if args.cuda and torch.cuda.device_count() > 1:
@@ -341,7 +383,10 @@ def main(argv):
 
     best_loss = float("inf")
     for epoch in range(last_epoch, args.epochs):
-        print(f"Learning rate: {optimizer.param_groups[0]['lr']}")
+        lr = optimizer.param_groups[0]['lr']
+        print(f"Learning rate: {lr}")
+        if writer is not None:
+            writer.add_scalar("Learning rate", lr, epoch)
         train_one_epoch(
             net,
             criterion,
@@ -350,8 +395,9 @@ def main(argv):
             aux_optimizer,
             epoch,
             args.clip_max_norm,
+            writer
         )
-        loss = test_epoch(epoch, test_dataloader, net, criterion)
+        loss = test_epoch(epoch, test_dataloader, net, criterion, writer)
         lr_scheduler.step(loss)
 
         is_best = loss < best_loss
@@ -368,6 +414,7 @@ def main(argv):
                     "lr_scheduler": lr_scheduler.state_dict(),
                 },
                 is_best,
+                filename=f"checkpoint-model={args.model}-lambda={args.lmbda:.3g}.pth.tar"
             )
 
 

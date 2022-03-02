@@ -27,14 +27,22 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+<<<<<<< HEAD
 from collections import OrderedDict
+=======
+from typing import Callable, Optional, OrderedDict
+>>>>>>> main
 import warnings
+import numpy as np
+import torch
 
 import torch.nn as nn
 
 from compressai.entropy_models import EntropyBottleneck
+from compressai.layers import GDN1
 
 from utils import conv, conv_transpose, update_registered_buffers
+from compression import decompress_symbols, encompression_decompression_run, unmake_symbols
 
 
 class CompressionModel(nn.Module):
@@ -101,6 +109,9 @@ class FactorizedPrior(CompressionModel):
     <https://arxiv.org/abs/1802.01436>`_, Int Conf. on Learning Representations
     (ICLR), 2018.
 
+    We use this as a baseclass, the actual models will be defined by subclasses,
+    which are responsible for instantiating an analysis and synthesis transform.
+
     Args:
         N (int): Number of channels
         M (int): Number of channels in the expansion layers (last layer of the
@@ -109,30 +120,10 @@ class FactorizedPrior(CompressionModel):
 
     def __init__(self, N, M, **kwargs):
         super().__init__(entropy_bottleneck_channels=M, **kwargs)
-
-        self.analysis_transform = nn.Sequential(
-            OrderedDict([
-                ("conv0", conv(3, N)),
-                ("relu0", nn.ReLU()),
-                ("conv1", conv(N, N)),
-                ("relu1", nn.ReLU()),
-                ("conv2", conv(N, N)),
-                ("relu2", nn.ReLU()),
-                ("conv3", conv(N, M)),
-            ]))
-
-        self.synthesis_transform = nn.Sequential(
-            OrderedDict([
-                ("conv_transpose0", conv_transpose(M, N)),
-                ("relu0", nn.ReLU()),
-                ("conv_transpose1", conv_transpose(N, N)),
-                ("relu1", nn.ReLU()),
-                ("conv_transpose2", conv_transpose(N, N)),
-                ("relu2", nn.ReLU()),
-                ("conv_transpose3", conv_transpose(N, 3)),
-            ]))
         self.N = N
         self.M = M
+        self.synthesis_transform: Callable
+        self.analysis_transform: Callable
 
     @property
     def downsampling_factor(self) -> int:
@@ -160,3 +151,172 @@ class FactorizedPrior(CompressionModel):
         y_hat = self.entropy_bottleneck.decompress(strings[0], shape)
         x_hat = self.synthesis_transform(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
+
+    def compress_decompress_constriction(self, x: torch.Tensor):
+        """
+        Performs both compression and decompression on an image. 
+        Used for debugging and performance analysis.
+        """
+        medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        y = self.analysis_transform(x)
+        compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), self.entropy_bottleneck._quantized_cdf.numpy(
+        ), self.entropy_bottleneck._offset.numpy(), self.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+        x_hat_constriction = self.synthesis_transform(
+            torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
+        return compressed, y_quant, x_hat_constriction
+
+    def compress_constriction(self, x: torch.Tensor):
+        """
+        Compresses an using constriction.
+        """
+        medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        y = self.analysis_transform(x)
+        compressed, y_quant = encompression_decompression_run(y.squeeze().detach().numpy(), self.entropy_bottleneck._quantized_cdf.numpy(
+        ), self.entropy_bottleneck._offset.numpy(), self.entropy_bottleneck._cdf_length.numpy(), 16, means=medians)
+        return compressed, y_quant
+
+    def decompress_constriction(self, compressed_representation: np.ndarray, latent_shape: tuple):
+        """
+        Decompresses a compressed representation of an image using constriction.
+        """
+        medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
+        offsets = self.entropy_bottleneck._offset.numpy()
+        decompressed_symbols = decompress_symbols(
+            compressed_representation, latent_shape, self.entropy_bottleneck._quantized_cdf.numpy(), self.entropy_bottleneck._cdf_length.numpy(), 16)
+        y_tilde = unmake_symbols(decompressed_symbols, offsets, medians)
+        x_hat_constriction = self.synthesis_transform(
+            torch.Tensor(y_tilde[None, :, :, :])).clamp_(0, 1)
+        return x_hat_constriction
+
+
+class FactorizedPriorRelu(FactorizedPrior):
+    """
+    Same as the factorized prior model, but we are using GDN layers instead
+    of simple ReLU.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N)),
+                ("relu0", nn.ReLU()),
+                ("conv1", conv(N, N)),
+                ("relu1", nn.ReLU()),
+                ("conv2", conv(N, N)),
+                ("relu2", nn.ReLU()),
+                ("conv3", conv(N, M)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv_transpose0", conv_transpose(M, N)),
+                ("relu0", nn.ReLU()),
+                ("conv_transpose1", conv_transpose(N, N)),
+                ("relu1", nn.ReLU()),
+                ("conv_transpose2", conv_transpose(N, N)),
+                ("relu2", nn.ReLU()),
+                ("conv_transpose3", conv_transpose(N, 3)),
+            ]))
+
+
+class FactorizedPriorGdn(FactorizedPrior):
+    """
+    Same as the factorized prior model, but we are using GDN layers instead
+    of simple ReLU.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N)),
+                ("gdn0", GDN1(N)),
+                ("conv1", conv(N, N)),
+                ("gdn1", GDN1(N)),
+                ("conv2", conv(N, N)),
+                ("gdn2", GDN1(N)),
+                ("conv3", conv(N, M)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv_transpose0", conv_transpose(M, N)),
+                ("igdn0", GDN1(N, inverse=True)),
+                ("conv_transpose1", conv_transpose(N, N)),
+                ("igdn1", GDN1(N, inverse=True)),
+                ("conv_transpose2", conv_transpose(N, N)),
+                ("igdn2", GDN1(N, inverse=True)),
+                ("conv_transpose3", conv_transpose(N, 3)),
+            ]))
+
+
+class FactorizedPriorGdnUpsampling(FactorizedPrior):
+    """
+    Same as the factorized prior model, but we are using GDN layers instead
+    of simple ReLU.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N)),
+                ("gdn0", GDN1(N)),
+                ("conv1", conv(N, N)),
+                ("gdn1", GDN1(N)),
+                ("conv2", conv(N, N)),
+                ("gdn2", GDN1(N)),
+                ("conv3", conv(N, M)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("upsample0", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs0", conv(M, N, stride=1)),
+                ("igdn0", GDN1(N, inverse=True)),
+                ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs1", conv(N, N, stride=1)),
+                ("igdn1", GDN1(N, inverse=True)),
+                ("upsample2", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs2", conv(N, N, stride=1)),
+                ("igdn2", GDN1(N, inverse=True)),
+                ("upsample3", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs3", conv(N, 3, stride=1)),
+            ]))
+
+
+class FactorizedPriorGdnUpsamplingBalle(FactorizedPrior):
+    """
+    Directly taken from the original paper "End-to-End optimized image compression", Balle et al, 2016
+    This seems to run a bit slow.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N, kernel_size=9, stride=4)),
+                ("gdn0", GDN1(N)),
+                ("conv1", conv(N, N)),
+                ("gdn2", GDN1(N)),
+                ("conv2", conv(N, M)),
+                ("gdn3", GDN1(M)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("igdn0", GDN1(M, inverse=True)),
+                ("upsample0", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs0", conv(M, N, stride=1)),
+                ("igdn1", GDN1(N, inverse=True)),
+                ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
+                ("convs1", conv(N, N, stride=1)),
+                ("igdn2", GDN1(N, inverse=True)),
+                ("upsample2", nn.Upsample(scale_factor=4, mode="nearest")),
+                ("convs2", conv(N, 3, kernel_size=9, stride=1)),
+            ]))
