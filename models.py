@@ -35,7 +35,7 @@ import torch
 import torch.nn as nn
 
 from compressai.entropy_models import EntropyBottleneck
-from compressai.layers import GDN
+from compressai.layers import GDN1
 
 from utils import conv, conv_transpose, update_registered_buffers
 from compression import decompress_symbols, encompression_decompression_run, unmake_symbols
@@ -229,22 +229,22 @@ class FactorizedPriorGdn(FactorizedPrior):
         self.analysis_transform = nn.Sequential(
             OrderedDict([
                 ("conv0", conv(3, N)),
-                ("gdn0", GDN(N)),
+                ("gdn0", GDN1(N)),
                 ("conv1", conv(N, N)),
-                ("gdn1", GDN(N)),
+                ("gdn1", GDN1(N)),
                 ("conv2", conv(N, N)),
-                ("gdn2", GDN(N)),
+                ("gdn2", GDN1(N)),
                 ("conv3", conv(N, M)),
             ]))
 
         self.synthesis_transform = nn.Sequential(
             OrderedDict([
                 ("conv_transpose0", conv_transpose(M, N)),
-                ("igdn0", GDN(N, inverse=True)),
+                ("igdn0", GDN1(N, inverse=True)),
                 ("conv_transpose1", conv_transpose(N, N)),
-                ("igdn1", GDN(N, inverse=True)),
+                ("igdn1", GDN1(N, inverse=True)),
                 ("conv_transpose2", conv_transpose(N, N)),
-                ("igdn2", GDN(N, inverse=True)),
+                ("igdn2", GDN1(N, inverse=True)),
                 ("conv_transpose3", conv_transpose(N, 3)),
             ]))
 
@@ -261,11 +261,11 @@ class FactorizedPriorGdnUpsampling(FactorizedPrior):
         self.analysis_transform = nn.Sequential(
             OrderedDict([
                 ("conv0", conv(3, N)),
-                ("gdn0", GDN(N)),
+                ("gdn0", GDN1(N)),
                 ("conv1", conv(N, N)),
-                ("gdn1", GDN(N)),
+                ("gdn1", GDN1(N)),
                 ("conv2", conv(N, N)),
-                ("gdn2", GDN(N)),
+                ("gdn2", GDN1(N)),
                 ("conv3", conv(N, M)),
             ]))
 
@@ -273,13 +273,13 @@ class FactorizedPriorGdnUpsampling(FactorizedPrior):
             OrderedDict([
                 ("upsample0", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs0", conv(M, N, stride=1)),
-                ("igdn0", GDN(N, inverse=True)),
+                ("igdn0", GDN1(N, inverse=True)),
                 ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs1", conv(N, N, stride=1)),
-                ("igdn1", GDN(N, inverse=True)),
+                ("igdn1", GDN1(N, inverse=True)),
                 ("upsample2", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs2", conv(N, N, stride=1)),
-                ("igdn2", GDN(N, inverse=True)),
+                ("igdn2", GDN1(N, inverse=True)),
                 ("upsample3", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs3", conv(N, 3, stride=1)),
             ]))
@@ -297,22 +297,22 @@ class FactorizedPriorGdnUpsamplingBalle(FactorizedPrior):
         self.analysis_transform = nn.Sequential(
             OrderedDict([
                 ("conv0", conv(3, N, kernel_size=9, stride=4)),
-                ("gdn0", GDN(N)),
+                ("gdn0", GDN1(N)),
                 ("conv1", conv(N, N)),
-                ("gdn2", GDN(N)),
+                ("gdn2", GDN1(N)),
                 ("conv2", conv(N, M)),
-                ("gdn3", GDN(M)),
+                ("gdn3", GDN1(M)),
             ]))
 
         self.synthesis_transform = nn.Sequential(
             OrderedDict([
-                ("igdn0", GDN(M, inverse=True)),
+                ("igdn0", GDN1(M, inverse=True)),
                 ("upsample0", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs0", conv(M, N, stride=1)),
-                ("igdn1", GDN(N, inverse=True)),
+                ("igdn1", GDN1(N, inverse=True)),
                 ("upsample1", nn.Upsample(scale_factor=2, mode="nearest")),
                 ("convs1", conv(N, N, stride=1)),
-                ("igdn2", GDN(N, inverse=True)),
+                ("igdn2", GDN1(N, inverse=True)),
                 ("upsample2", nn.Upsample(scale_factor=4, mode="nearest")),
                 ("convs2", conv(N, 3, kernel_size=9, stride=1)),
             ]))
