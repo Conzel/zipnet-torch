@@ -206,7 +206,8 @@ def test_epoch(epoch, test_dataloader, model, criterion, writer=None):
         writer.add_scalar("MSE-loss/test", mse_loss.avg, epoch)
         writer.add_scalar("BPP-loss/test", bpp_loss.avg, epoch)
         writer.add_scalar("Loss/test", loss.avg, epoch)
-        example_imgs = next(iter(test_dataloader))[[0, 1, 2], :, :, :]
+        example_imgs = next(iter(test_dataloader))[
+            [0, 1, 2], :, :, :].to(device)
         recs = model(example_imgs)
         writer.add_images("Image reconstructions",
                           torch.cat((example_imgs, recs["x_hat"]), dim=0), epoch)
@@ -319,7 +320,7 @@ def get_model(model_name: str):
 
 def main(argv):
     args = parse_args(argv)
-    writer = SummaryWriter()
+    writer = SummaryWriter(f"runs/lambda={args.lmbda}_model={args.model}")
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
