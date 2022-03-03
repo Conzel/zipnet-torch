@@ -149,7 +149,7 @@ class FactorizedPrior(CompressionModel):
         x_hat = self.synthesis_transform(y_hat).clamp_(0, 1)
         return {"x_hat": x_hat}
 
-    def compress_decompress_constriction(self, x: torch.Tensor):
+    def compress_decompress_constriction(self, x: torch.Tensor) -> tuple[np.ndarray, np.ndarray, torch.Tensor]:
         """
         Performs both compression and decompression on an image. 
         Used for debugging and performance analysis.
@@ -162,7 +162,7 @@ class FactorizedPrior(CompressionModel):
             torch.Tensor(y_quant[None, :, :, :])).clamp_(0, 1)
         return compressed, y_quant, x_hat_constriction
 
-    def compress_constriction(self, x: torch.Tensor):
+    def compress_constriction(self, x: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
         """
         Compresses an using constriction.
         """
