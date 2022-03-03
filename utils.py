@@ -131,18 +131,18 @@ def update_registered_buffers(
         )
 
 
-def conv(in_channels, out_channels, kernel_size=5, stride=2):
+def conv(in_channels, out_channels, kernel_size=5, stride=2, bias=False):
     return nn.Conv2d(
         in_channels,
         out_channels,
         kernel_size=kernel_size,
         stride=stride,
         padding=kernel_size // 2,
-        bias=False,
+        bias=bias,
     )
 
 
-def conv_transpose(in_channels, out_channels, kernel_size=5, stride=2):
+def conv_transpose(in_channels, out_channels, kernel_size=5, stride=2, bias=False):
     return nn.ConvTranspose2d(
         in_channels,
         out_channels,
@@ -150,7 +150,7 @@ def conv_transpose(in_channels, out_channels, kernel_size=5, stride=2):
         stride=stride,
         output_padding=stride - 1,
         padding=kernel_size // 2,
-        bias=False,
+        bias=bias,
     )
 
 

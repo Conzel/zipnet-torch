@@ -218,6 +218,37 @@ class FactorizedPriorRelu(FactorizedPrior):
             ]))
 
 
+class FactorizedPriorGdnBias(FactorizedPrior):
+    """
+    Same as the GDN model, but we use bias.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N, bias=True)),
+                ("gdn0", GDN1(N)),
+                ("conv1", conv(N, N, bias=True)),
+                ("gdn1", GDN1(N)),
+                ("conv2", conv(N, N, bias=True)),
+                ("gdn2", GDN1(N)),
+                ("conv3", conv(N, M, bias=True)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv_transpose0", conv_transpose(M, N, bias=True)),
+                ("igdn0", GDN1(N, inverse=True)),
+                ("conv_transpose1", conv_transpose(N, N, bias=True)),
+                ("igdn1", GDN1(N, inverse=True)),
+                ("conv_transpose2", conv_transpose(N, N, bias=True)),
+                ("igdn2", GDN1(N, inverse=True)),
+                ("conv_transpose3", conv_transpose(N, 3, bias=True)),
+            ]))
+
+
 class FactorizedPriorGdn(FactorizedPrior):
     """
     Same as the factorized prior model, but we are using GDN layers instead
