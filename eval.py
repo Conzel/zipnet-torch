@@ -62,15 +62,18 @@ def pillow_encode(img: Image.Image, fmt: str = 'jpeg', quality: int = 10) -> tup
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Evaluation script.")
+    parser = argparse.ArgumentParser(
+        description="Evaluation script for R/D curves.")
     parser.add_argument(
         "--images", type=str, required=True, help="Path to an image or folder of images"
     )
     parser.add_argument(
-        "--save-folder", type=str, required=True, help="folder to dump json files"
+        "--save-folder", type=str, required=True, help="Folder to dump json files"
     )
     parser.add_argument("--checkpoints", type=str,
-                        default="./tests/assets/checkpoint.pth.tar", help="Path to a checkpoint or folder of checkpoints")
+                        help="Path to a checkpoint or folder of checkpoints", required=False)
+    parser.add_argument("--baseline", type=str,
+                        choices=["jpeg"], required=False, help="Name of the baseline to use.")
     args = parser.parse_args(argv)
     return args
 
@@ -190,19 +193,19 @@ def psnr(orig: np.ndarray, rec: np.ndarray) -> float:
     return psnr
 
 
-def evaluate_jpeg(quality, images) -> tuple[float, float, float]:
+def evaluate_baseline(quality, images, fmt) -> tuple[float, float, float]:
     psnr_list = []
     ms_ssim_list = []
     bpp_list = []
     for img_pil in images:
-        x_jpeg, bpp_jpeg = pillow_encode(
-            img_pil, fmt='jpeg', quality=int(quality))
+        x_baseline, bpp_baseline = pillow_encode(
+            img_pil, fmt=fmt, quality=int(quality))
         img = pil_to_tensor(img_pil)
-        x_jpeg_torch = pil_to_tensor(x_jpeg)
+        x_baseline_torch = pil_to_tensor(x_baseline)
         psnr_list.append(psnr(img.numpy().squeeze(),
-                              x_jpeg_torch.numpy().squeeze()))
-        ms_ssim_list.append(ms_ssim(img, x_jpeg_torch))
-        bpp_list.append(bpp_jpeg)
+                              x_baseline_torch.numpy().squeeze()))
+        ms_ssim_list.append(ms_ssim(img, x_baseline_torch))
+        bpp_list.append(bpp_baseline)
     return np.mean(psnr_list), np.mean(ms_ssim_list), np.mean(bpp_list)
 
 
@@ -222,34 +225,43 @@ def main(argv):
     args = parse_args(argv)
     os.makedirs(args.save_folder, exist_ok=True)
     results = {}
-    results_jpeg = {}
+    results_baseline = {}
     init_dict(results)
-    init_dict(results_jpeg)
+    init_dict(results_baseline)
 
-    if not os.path.isdir(args.checkpoints):
-        checkpoint_list = [args.checkpoint]
-    else:
-        checkpoint_list = [os.path.join(args.checkpoints, ckpt)
-                           for ckpt in os.listdir(args.checkpoints) if ckpt.endswith(".pth.tar")]
     torch_images, pil_images = load_batch_img(args.images)
 
-    model_names = set()
-    # evaluating our method
-    for checkpoint in checkpoint_list:
-        current_model_name = checkpoint_to_model_name(checkpoint)
-        model_names.add(current_model_name)
-        if len(model_names) > 1:
-            raise ValueError(
-                f"Tried to mix evaluation of two different architectures: {model_names}.")
-        psnr, ms_ssim, bpp = evaluate_checkpoint(checkpoint, torch_images)
-        update_results(results, psnr, ms_ssim, bpp)
+    if args.checkpoints is not None:
+        if not os.path.isdir(args.checkpoints):
+            checkpoint_list = [args.checkpoints]
+        else:
+            checkpoint_list = [os.path.join(args.checkpoints, ckpt)
+                               for ckpt in os.listdir(args.checkpoints) if ckpt.endswith(".pth.tar")]
 
-    for qual in range(0, 70):
-        psnr, ms_ssim, bpp = evaluate_jpeg(qual, pil_images)
-        update_results(results_jpeg, psnr, ms_ssim, bpp)
+        model_names = set()
+        # evaluating our method
+        for checkpoint in checkpoint_list:
+            current_model_name = checkpoint_to_model_name(checkpoint)
+            model_names.add(current_model_name)
+            if len(model_names) > 1:
+                raise ValueError(
+                    f"Tried to mix evaluation of two different architectures: {model_names}.")
+            psnr, ms_ssim, bpp = evaluate_checkpoint(checkpoint, torch_images)
+            update_results(results, psnr, ms_ssim, bpp)
 
-    save_json(args, results, name=list(model_names)[0])
-    save_json(args, results_jpeg, name="jpeg")
+        save_json(args, results, name=list(model_names)[0])
+
+    if args.baseline is not None:
+        print(f"Evaluating baseline {args.baseline}...")
+        for qual in range(0, 95):
+            psnr, ms_ssim, bpp = evaluate_baseline(
+                qual, pil_images, args.baseline)
+            update_results(results_baseline, psnr, ms_ssim, bpp)
+
+        save_json(args, results_baseline, name=args.baseline)
+
+    if args.baseline is None and args.checkpoints is None:
+        print("Warning: Neither baseline nor checkpoints specified. This script exited without doing anything.")
 
 
 if __name__ == "__main__":
