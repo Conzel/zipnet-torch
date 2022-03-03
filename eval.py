@@ -1,13 +1,13 @@
-'''
-# Single img ; single ckpt
-python eval.py --single_img True --d tests/assets/test-img-link-small.jpg --single_ckpt --expname test --save_folder results/
+"""
+Produces R/D results for plotting.
+Usage:
+python3 eval.py --checkpoints path/to/checkpoints --images /path/to/images --save-folder results
 
-# Batch ; folder of ckpt
-python eval.py --d tests/assets/images_folder/ --checkpoint True <ckpt directory>
-'''
+For further info:
+python3 eval.py --help
+"""
 
-from math import log10, sqrt
-from nbformat import current_nbformat
+from math import log10
 import numpy as np
 from models import get_model
 import argparse
@@ -22,7 +22,6 @@ import os
 import json
 
 import torch
-import torch.nn as nn
 from pytorch_msssim import ms_ssim
 
 from export_weights import clean_checkpoint_data_parallel
@@ -33,26 +32,23 @@ def load_batch_img(path: str, H=256, W=256) -> tuple[list[torch.Tensor], list[Im
     Loads in images at the folder indicated by the passed path.
     """
     assert(os.path.exists(path))
-    img_files = [os.path.join(path, img) for img in os.listdir(
-        path) if img.endswith(("jpg", "JPG", "jpeg", "JPEG", "png"))]
-    if len(img_files) < 1:
-        print("No images found in directory:", path)
-        raise SystemExit(1)
+    if not os.path.isdir(path):
+        img_files = [path]
+    else:
+        img_files = [os.path.join(path, img) for img in os.listdir(
+            path) if img.endswith(("jpg", "JPG", "jpeg", "JPEG", "png"))]
+        if len(img_files) < 1:
+            print("No images found in directory:", path)
+            raise SystemExit(1)
 
     pil_img_list = [Image.open(img).crop((0, 0, H, W)) for img in img_files]
     tensor_list = [pil_to_tensor(pil_img) for pil_img in pil_img_list]
     return tensor_list, pil_img_list
 
 
-'''
-To find the closest bpp for JPEG; we follow compressAI's evaluation scheme:
-https://github.com/InterDigitalInc/CompressAI/blob/master/examples/CompressAI%20Inference%20Demo.ipynb
-'''
-
-
 def pillow_encode(img: Image.Image, fmt: str = 'jpeg', quality: int = 10) -> tuple[Image.Image, float]:
     """
-    Encodes the given image into JPEG with the given quality. 
+    Encodes the given image into the specified format (usually JPEG) with the given quality. 
 
     Returns the reconstructed image and the bpp. 
     """
@@ -70,6 +66,9 @@ def find_closest_bpp(target_bpp: float, img: Image.Image, fmt='jpeg') -> tuple[I
     Tries a range of quality parameters for JPEG until it finds a quality that is 
     very close to the target bpp on the given image.
 
+    To find the closest bpp for JPEG; we follow compressAI's evaluation scheme:
+    https://github.com/InterDigitalInc/CompressAI/blob/master/examples/CompressAI%20Inference%20Demo.ipynb
+
     Returns achieved bpp and the reconstructed image.
     """
     lower = 0
@@ -85,12 +84,6 @@ def find_closest_bpp(target_bpp: float, img: Image.Image, fmt='jpeg') -> tuple[I
             upper = mid - 1
         else:
             lower = mid
-    return rec, bpp
-
-
-# Whatever this function does?
-def bpp_plot_jpeg(quality, img, fmt='jpeg'):
-    rec, bpp = pillow_encode(img, fmt=fmt, quality=int(quality))
     return rec, bpp
 
 
@@ -228,7 +221,8 @@ def evaluate_jpeg(quality, images) -> tuple[float, float, float]:
     ms_ssim_list = []
     bpp_list = []
     for img_pil in images:
-        x_jpeg, bpp_jpeg = bpp_plot_jpeg(quality, img_pil, fmt='jpeg')
+        x_jpeg, bpp_jpeg = pillow_encode(
+            img_pil, fmt='jpeg', quality=int(quality))
         img = pil_to_tensor(img_pil)
         x_jpeg_torch = pil_to_tensor(x_jpeg)
         psnr_list.append(psnr(img.numpy().squeeze(),
@@ -261,24 +255,18 @@ def main(argv):
     if not os.path.isdir(args.checkpoints):
         checkpoint_list = [args.checkpoint]
     else:
-        if not os.path.isdir(args.checkpoints):
-            print("Provided path:", args.checkpoints,
-                  "is not a valid directory of checkpoints")
-            raise SystemExit(1)
         checkpoint_list = [os.path.join(args.checkpoints, ckpt)
                            for ckpt in os.listdir(args.checkpoints) if ckpt.endswith(".pth.tar")]
     torch_images, pil_images = load_batch_img(args.images)
 
-    model_name = None
+    model_names = set()
     # evaluating our method
     for checkpoint in checkpoint_list:
         current_model_name = checkpoint_to_model_name(checkpoint)
-        if model_name is None:
-            model_name = current_model_name
-        else:
-            if model_name != current_model_name:
-                raise ValueError(
-                    "Tried to mix evaluation of two different architectures.")
+        model_names.add(current_model_name)
+        if len(model_names) > 1:
+            raise ValueError(
+                f"Tried to mix evaluation of two different architectures: {model_names}.")
         psnr, ms_ssim, bpp = evaluate_checkpoint(checkpoint, torch_images)
         update_results(results, psnr, ms_ssim, bpp)
 
