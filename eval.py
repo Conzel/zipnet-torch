@@ -61,32 +61,6 @@ def pillow_encode(img: Image.Image, fmt: str = 'jpeg', quality: int = 10) -> tup
     return rec, bpp
 
 
-def find_closest_bpp(target_bpp: float, img: Image.Image, fmt='jpeg') -> tuple[Image.Image, float]:
-    """
-    Tries a range of quality parameters for JPEG until it finds a quality that is 
-    very close to the target bpp on the given image.
-
-    To find the closest bpp for JPEG; we follow compressAI's evaluation scheme:
-    https://github.com/InterDigitalInc/CompressAI/blob/master/examples/CompressAI%20Inference%20Demo.ipynb
-
-    Returns achieved bpp and the reconstructed image.
-    """
-    lower = 0
-    upper = 100
-    prev_mid = upper
-    for i in range(10):
-        mid = (upper - lower) / 2 + lower
-        if int(mid) == int(prev_mid):
-            break
-        rec, bpp = pillow_encode(img, fmt=fmt, quality=int(mid))
-        print(mid, bpp)
-        if bpp > target_bpp:
-            upper = mid - 1
-        else:
-            lower = mid
-    return rec, bpp
-
-
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Evaluation script.")
     parser.add_argument(
