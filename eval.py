@@ -116,8 +116,13 @@ def run_compression(model: FactorizedPrior, test_img: torch.Tensor) -> tuple[tor
     return x_hat_constriction, compressed.size * 32, enc_time, dec_time
 
 
-def save_json(args, results, name):
-    json_save_path = os.path.join(args.save_folder, name + ".json")
+def save_json(save_folder: str, results: dict[str, list[float]], name: str):
+    """
+    Saves results in a .json file that is called "name"
+    under the specified folder.
+    """
+    results = sort_results(results)
+    json_save_path = os.path.join(save_folder, name + ".json")
     output_dict = {}
     output_dict["name"] = name
     output_dict["results"] = results
@@ -128,13 +133,13 @@ def save_json(args, results, name):
     print("saved json at:", json_save_path)
 
 
-def init_dict(results_dict):
+def init_dict(results_dict: dict):
     results_dict["psnr"] = []
     results_dict["ms-ssim"] = []
     results_dict["bpp"] = []
 
 
-def checkpoint_to_model_name(checkpoint_filename: str):
+def checkpoint_to_model_name(checkpoint_filename: str) -> str:
     model_name_capture = re.search(r".*model=(\w+)-.*", checkpoint_filename)
     if model_name_capture is None or len(model_name_capture.groups()) != 1:
         raise ValueError(f"Invalid checkpoint name: {checkpoint_filename}")
@@ -193,7 +198,7 @@ def psnr(orig: np.ndarray, rec: np.ndarray) -> float:
     return psnr
 
 
-def evaluate_baseline(quality, images, fmt) -> tuple[float, float, float]:
+def evaluate_baseline(quality: float, images: list[Image.Image], fmt: str) -> tuple[float, float, float]:
     psnr_list = []
     ms_ssim_list = []
     bpp_list = []
@@ -207,6 +212,17 @@ def evaluate_baseline(quality, images, fmt) -> tuple[float, float, float]:
         ms_ssim_list.append(ms_ssim(img, x_baseline_torch))
         bpp_list.append(bpp_baseline)
     return np.mean(psnr_list), np.mean(ms_ssim_list), np.mean(bpp_list)
+
+
+def sort_results(results_dict: dict[str, list[float]]):
+    """
+    Sorts the resulting dictionary. Returns sorted dictionary.
+    """
+    sorted_dict = {}
+    order = np.argsort(results_dict["bpp"])
+    for key, val in results_dict.items():
+        sorted_dict[key] = [val[i] for i in order]
+    return sorted_dict
 
 
 def update_results(results_dict: dict[str, list[float]], psnr: float, ms_ssim: float, bpp: float):
@@ -249,7 +265,7 @@ def main(argv):
             psnr, ms_ssim, bpp = evaluate_checkpoint(checkpoint, torch_images)
             update_results(results, psnr, ms_ssim, bpp)
 
-        save_json(args, results, name=list(model_names)[0])
+        save_json(args.save_folder, results, name=list(model_names)[0])
 
     if args.baseline is not None:
         print(f"Evaluating baseline {args.baseline}...")
@@ -258,7 +274,7 @@ def main(argv):
                 qual, pil_images, args.baseline)
             update_results(results_baseline, psnr, ms_ssim, bpp)
 
-        save_json(args, results_baseline, name=args.baseline)
+        save_json(args.save_folder, results_baseline, name=args.baseline)
 
     if args.baseline is None and args.checkpoints is None:
         print("Warning: Neither baseline nor checkpoints specified. This script exited without doing anything.")
