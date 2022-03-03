@@ -248,7 +248,7 @@ def main(argv):
         psnr, ms_ssim, bpp = evaluate_jpeg(qual, pil_images)
         update_results(results_jpeg, psnr, ms_ssim, bpp)
 
-    save_json(args, results, name=model_name)
+    save_json(args, results, name=list(model_names)[0])
     save_json(args, results_jpeg, name="jpeg")
 
 
