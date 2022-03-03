@@ -28,8 +28,8 @@
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from collections import OrderedDict
+import re
 from typing import Callable, Optional, OrderedDict
-import warnings
 import numpy as np
 import torch
 
@@ -330,3 +330,62 @@ def get_model(model_name: str) -> FactorizedPrior:
         return FactorizedPriorGdnUpsamplingBalle(192, 192)
     else:
         raise ValueError(f"Model name {model_name} not recognized")
+
+
+def checkpoint_to_model_name(checkpoint_filename: str) -> str:
+    model_name_capture = re.search(r".*model=(\w+)-.*", checkpoint_filename)
+    if model_name_capture is None or len(model_name_capture.groups()) != 1:
+        raise ValueError(f"Invalid checkpoint name: {checkpoint_filename}")
+    else:
+        return model_name_capture[1]
+
+
+def parse_checkpoint_to_model(checkpoint_filename: str) -> tuple[FactorizedPrior, float]:
+    """
+    Parses the name of the checkpoint file and returns the model that was used to
+    generate the checkpoint.
+    """
+    model_name = checkpoint_to_model_name(checkpoint_filename)
+    lambda_capture = re.search(r".*lambda=([\.\d]+)-.*", checkpoint_filename)
+    if lambda_capture is None or len(lambda_capture.groups()) != 1:
+        raise ValueError(f"Invalid checkpoint name: {checkpoint_filename}")
+    else:
+        lambd = lambda_capture[1]
+    return get_model(model_name), float(lambd)
+
+
+def load_model(checkpoint_path: str) -> FactorizedPrior:
+    """
+    Returns the model that is parsed from the given checkpoint path.
+    """
+    model, _ = parse_checkpoint_to_model(checkpoint_path)
+    if checkpoint_path:  # load from previous checkpoint
+        checkpoint = torch.load(checkpoint_path,
+                                map_location=torch.device("cpu"))
+
+        new_dict = clean_checkpoint_data_parallel(checkpoint)
+        model.load_state_dict(new_dict)
+    else:
+        raise ValueError("Checkpoint path does not exist:", checkpoint_path)
+    model.update(force=True)
+    return model
+
+
+def clean_checkpoint_data_parallel(checkpoint: dict) -> dict[str, torch.Tensor]:
+    """
+    If the model was trained with DataParallel, we will have to remove
+    the .module prefix from the keys.
+
+    This function is responsible for that.
+
+    See:
+    https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/8
+    """
+    new_dict = {}
+    for key in checkpoint["state_dict"]:
+        if key.startswith("module."):
+            new_key = key[7:]
+        else:
+            new_key = key
+        new_dict[new_key] = checkpoint["state_dict"][key]
+    return new_dict

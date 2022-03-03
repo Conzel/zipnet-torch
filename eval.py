@@ -9,7 +9,7 @@ python3 eval.py --help
 
 from math import log10
 import numpy as np
-from models import get_model
+from models import load_model
 import argparse
 import re
 import sys
@@ -78,23 +78,6 @@ def parse_args(argv):
     return args
 
 
-def load_model(checkpoint_path: str) -> FactorizedPrior:
-    """
-    Returns the model that is parsed from the given checkpoint path.
-    """
-    model, _ = parse_checkpoint_to_model(checkpoint_path)
-    if checkpoint_path:  # load from previous checkpoint
-        checkpoint = torch.load(checkpoint_path,
-                                map_location=torch.device("cpu"))
-
-        new_dict = clean_checkpoint_data_parallel(checkpoint)
-        model.load_state_dict(new_dict)
-    else:
-        raise ValueError("Checkpoint path does not exist:", checkpoint_path)
-    model.update(force=True)
-    return model
-
-
 def run_compression(model: FactorizedPrior, test_img: torch.Tensor) -> tuple[torch.Tensor, int, float, float]:
     """
     Runs the given model on the image. Uses constriction to do compression and
@@ -137,28 +120,6 @@ def init_dict(results_dict: dict):
     results_dict["psnr"] = []
     results_dict["ms-ssim"] = []
     results_dict["bpp"] = []
-
-
-def checkpoint_to_model_name(checkpoint_filename: str) -> str:
-    model_name_capture = re.search(r".*model=(\w+)-.*", checkpoint_filename)
-    if model_name_capture is None or len(model_name_capture.groups()) != 1:
-        raise ValueError(f"Invalid checkpoint name: {checkpoint_filename}")
-    else:
-        return model_name_capture[1]
-
-
-def parse_checkpoint_to_model(checkpoint_filename: str) -> tuple[FactorizedPrior, float]:
-    """
-    Parses the name of the checkpoint file and returns the model that was used to
-    generate the checkpoint.
-    """
-    model_name = checkpoint_to_model_name(checkpoint_filename)
-    lambda_capture = re.search(r".*lambda=([\.\d]+)-.*", checkpoint_filename)
-    if lambda_capture is None or len(lambda_capture.groups()) != 1:
-        raise ValueError(f"Invalid checkpoint name: {checkpoint_filename}")
-    else:
-        lambd = lambda_capture[1]
-    return get_model(model_name), float(lambd)
 
 
 def evaluate_checkpoint(checkpoint: str, image_list: list[torch.Tensor]) -> tuple[float, float, float]:

@@ -2,45 +2,17 @@
 Exports the weights in a format that Rust can work with (.npz with everything stripped out
 besides weights).
 """
-from multiprocessing.sharedctypes import Value
 import pathlib
 import torch
 import numpy as np
-import sys
 import argparse
-
-from models import FactorizedPrior
-from training import get_model
-
-
-def clean_checkpoint_data_parallel(checkpoint: dict) -> dict[str, torch.Tensor]:
-    """
-    If the model was trained with DataParallel, we will have to remove
-    the .module prefix from the keys.
-
-    This function is responsible for that.
-
-    See:
-    https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/8
-    """
-    new_dict = {}
-    for key in checkpoint["state_dict"]:
-        if key.startswith("module."):
-            new_key = key[7:]
-        else:
-            new_key = key
-        new_dict[new_key] = checkpoint["state_dict"][key]
-    return new_dict
+from models import load_model
 
 
 def main(args):
     checkpoint = torch.load(args.checkpoint, map_location=torch.device("cpu"))
 
-    new_dict = clean_checkpoint_data_parallel(checkpoint)
-
-    model = get_model(args.model)
-    model.load_state_dict(new_dict)
-    model.update()
+    model = load_model(args.checkpoint)
 
     # model update populates some important variables,
     # this is why we have to call it here.
@@ -55,12 +27,12 @@ def main(args):
         'analysis_transform.conv0.weight',
         'analysis_transform.gdn0.beta',
         'analysis_transform.gdn0.gamma',
+        'analysis_transform.gdn1.beta',
+        'analysis_transform.gdn1.gamma',
         'analysis_transform.conv1.weight',
         'analysis_transform.gdn2.beta',
         'analysis_transform.gdn2.gamma',
         'analysis_transform.conv2.weight',
-        'analysis_transform.gdn3.beta',
-        'analysis_transform.gdn3.gamma',
         'analysis_transform.conv3.weight',
         'synthesis_transform.conv_transpose0.weight',
         'synthesis_transform.igdn0.beta',
