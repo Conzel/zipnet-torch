@@ -72,9 +72,11 @@ def make_symbols(y: np.ndarray, offsets: np.ndarray, symbol_max_per_channel: np.
     for c in range(num_channels):
         y_channel = y[c, :, :] - means[c]
         offset = offsets[c]
-        quant_range = (offset, offset + symbol_max_per_channel[c] - 1)
+        # we subtract 2 because the symbol max per channel is one too large
+        # when we turn the quantized CDF of size n into a quantized PMF (of size n-1)
+        quant_range = (offset, offset + symbol_max_per_channel[c] - 2)
         quantized_channel = quantize(y_channel, quant_range) - offset
-        assert quantized_channel.max() < symbol_max_per_channel[c]
+        assert quantized_channel.max() < (symbol_max_per_channel[c] - 1)
         assert quantized_channel.min() >= 0
 
         symbols[c, :, :] = quantized_channel
