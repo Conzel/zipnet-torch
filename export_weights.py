@@ -7,16 +7,34 @@ import torch
 import numpy as np
 import argparse
 from models import load_model
+from compressai.layers import GDN
+
+
+def reparametrize_gdns(state_dict, model):
+    """
+    Modifies state_dict in place with reparametrized gamma and beta values of 
+    the GDN layers.
+    """
+    mods = dict(model.named_modules())
+    with torch.no_grad():
+        for key, mod in mods.items():
+            module = mods[key]
+            if isinstance(module, GDN):
+                beta_rep = module.beta_reparam(module.beta)
+                gamma_rep = module.gamma_reparam(module.gamma)
+                state_dict[key + ".beta"] = beta_rep
+                state_dict[key + ".gamma"] = gamma_rep
 
 
 def main(args):
-    checkpoint = torch.load(args.checkpoint, map_location=torch.device("cpu"))
-
-    model = load_model(args.checkpoint)
+    print("Loading model...")
+    model = load_model(str(args.checkpoint))
 
     # model update populates some important variables,
     # this is why we have to call it here.
     state_dict = model.state_dict()
+    # Updates gamma and beta values of the state dict via the reparametrizers
+    reparametrize_gdns(state_dict, model)
 
     # TODO: These keys will later be non-hardcoded
     keys_to_export = {
@@ -49,6 +67,7 @@ def main(args):
     exported_dict = {key: state_dict[key] for key in keys_to_export}
     exported_dict["entropy_bottleneck._medians"] = state_dict["entropy_bottleneck.quantiles"][:, :, 1:2].squeeze()
     np.savez(args.out, **exported_dict)
+    print(f"Successfully wrote weights to {args.out}")
 
 
 if __name__ == "__main__":
