@@ -355,6 +355,8 @@ def get_model(model_name: str) -> FactorizedPrior:
         return FactorizedPriorRelu(128, 192)
     elif model_name.lower() == "fp_gdn":
         return FactorizedPriorGdn(128, 192)
+    elif model_name.lower() == "fp_gdn_bias":
+        return FactorizedPriorGdnBias(128, 192)
     elif model_name.lower() == "fp_gdn_upsampling":
         return FactorizedPriorGdnUpsampling(128, 192)
     elif model_name.lower() == "fp_gdn_upsampling_balle":
