@@ -16,7 +16,8 @@ def main(args):
         print(f"CompressAI size: {len(s['strings'][0][0])} Byte")
         x_hat = model.decompress(s["strings"], s["shape"])["x_hat"]
         im_hat = tensor_to_pil(x_hat)
-        im_hat.show()
+        if not args.no_show:
+            im_hat.show()
 
         # our implementation
         medians = model.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
@@ -29,11 +30,13 @@ def main(args):
         # *32/8, as we return an ndarray of uint32
         print(f"Our size: {compressed.size*4} Byte")
         im_hat = tensor_to_pil(x_hat)
-        im_hat.show()
+        if not args.no_show:
+            im_hat.show()
 
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--checkpoint", type=str, required=True)
     args.add_argument("--image", type=str, required=True)
+    args.add_argument("--no-show", action="store_true")
     main(args.parse_args())
