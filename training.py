@@ -34,7 +34,7 @@ import shutil
 import sys
 
 import numpy as np
-from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorGdnUpsamplingBalle, FactorizedPriorRelu
+from models import FactorizedPrior, FactorizedPriorGdn, FactorizedPriorGdnUpsampling, FactorizedPriorGdnUpsamplingBalle, FactorizedPriorRelu, get_model
 
 import torch
 import torch.nn as nn
@@ -303,19 +303,6 @@ def parse_args(argv):
                         help="Path to a checkpoint")
     args = parser.parse_args(argv)
     return args
-
-
-def get_model(model_name: str):
-    if model_name.lower() == "fp_relu":
-        return FactorizedPriorRelu(128, 192)
-    elif model_name.lower() == "fp_gdn":
-        return FactorizedPriorGdn(128, 192)
-    elif model_name.lower() == "fp_gdn_upsampling":
-        return FactorizedPriorGdnUpsampling(128, 192)
-    elif model_name.lower() == "fp_gdn_upsampling_balle":
-        return FactorizedPriorGdnUpsamplingBalle(192, 192)
-    else:
-        raise ValueError(f"Model name {model_name} not recognized")
 
 
 def main(argv):
