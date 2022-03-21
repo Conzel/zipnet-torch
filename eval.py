@@ -23,8 +23,7 @@ import json
 
 import torch
 from pytorch_msssim import ms_ssim
-
-from export_weights import clean_checkpoint_data_parallel
+from models import checkpoint_to_model_name
 
 
 def load_batch_img(path: str, H=256, W=256) -> tuple[list[torch.Tensor], list[Image.Image]]:
