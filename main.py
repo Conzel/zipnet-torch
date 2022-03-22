@@ -36,7 +36,10 @@ def main(args):
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
-    args.add_argument("--checkpoint", type=str, required=True)
-    args.add_argument("--image", type=str, required=True)
-    args.add_argument("--no-show", action="store_true")
+    args.add_argument("--checkpoint", type=str, required=True,
+                      help="Argument to the checkpoint to be used. A pretrained model specifier can also be passed.")
+    args.add_argument("--image", type=str, required=True,
+                      help="Path to the image to compress and decompress.")
+    args.add_argument("--no-show", action="store_true",
+                      help="If set, does not show the output image and just prints compression stats.")
     main(args.parse_args())
