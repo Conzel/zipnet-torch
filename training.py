@@ -355,7 +355,8 @@ def main(argv):
         net = CustomDataParallel(net)
 
     optimizer, aux_optimizer = configure_optimizers(net, args)
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min")
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, "min", patience=20)
     criterion = RateDistortionLoss(lmbda=args.lmbda)
 
     last_epoch = 0
