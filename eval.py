@@ -197,6 +197,13 @@ def update_results(results_dict: dict[str, list[float]], psnr: float, ms_ssim: f
     results_dict["bpp"].append(float(bpp))
 
 
+def get_pretrained_checkpoints(checkpoint_name: str) -> list[str]:
+    """
+    Returns a list of pretrained checkpoints for the given checkpoint name.
+    """
+    return [checkpoint_name + f"-q={q}" for q in range(1, 9)]
+
+
 def main(argv):
     args = parse_args(argv)
     os.makedirs(args.save_folder, exist_ok=True)
@@ -208,7 +215,9 @@ def main(argv):
     torch_images, pil_images = load_batch_img(args.images)
 
     if args.checkpoints is not None:
-        if not os.path.isdir(args.checkpoints):
+        if args.checkpoints.startswith("pretrained"):
+            checkpoint_list = get_pretrained_checkpoints(args.checkpoints)
+        elif not os.path.isdir(args.checkpoints):
             checkpoint_list = [args.checkpoints]
         else:
             checkpoint_list = [os.path.join(args.checkpoints, ckpt)

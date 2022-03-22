@@ -26,8 +26,10 @@
 # WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+from __future__ import annotations
 
 from collections import OrderedDict
+from os import stat
 import re
 from typing import Callable, Optional, OrderedDict
 import numpy as np
@@ -36,7 +38,8 @@ import torch
 import torch.nn as nn
 
 from compressai.entropy_models import EntropyBottleneck
-from compressai.layers import GDN1
+from compressai.layers import GDN1, GDN
+from compressai.zoo import bmshj2018_factorized
 
 from utils import conv, conv_transpose, update_registered_buffers
 from compression import decompress_symbols, encompression_decompression_run, unmake_symbols
@@ -165,6 +168,7 @@ class FactorizedPrior(CompressionModel):
     def compress_constriction(self, x: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
         """
         Compresses an using constriction.
+        Returns the compressed representation and the quantized y values.
         """
         medians = self.entropy_bottleneck.quantiles[:, 0, 1].detach().numpy()
         y = self.analysis_transform(x)
@@ -184,6 +188,130 @@ class FactorizedPrior(CompressionModel):
         x_hat_constriction = self.synthesis_transform(
             torch.Tensor(y_tilde[None, :, :, :])).clamp_(0, 1)
         return x_hat_constriction
+
+
+class FactorizedPriorPretrained(FactorizedPrior):
+    """
+    The pretrained architecture from CompressAI. Essentially equal to our 
+    FactorizedPriorGdnBias, but uses GDN instead of GDN1.
+    """
+
+    def __init__(self, N, M, **kwargs):
+        super().__init__(N=N, M=M, **kwargs)
+
+        self.analysis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv0", conv(3, N, bias=True)),
+                ("gdn0", GDN(N)),
+                ("conv1", conv(N, N, bias=True)),
+                ("gdn1", GDN(N)),
+                ("conv2", conv(N, N, bias=True)),
+                ("gdn2", GDN(N)),
+                ("conv3", conv(N, M, bias=True)),
+            ]))
+
+        self.synthesis_transform = nn.Sequential(
+            OrderedDict([
+                ("conv_transpose0", conv_transpose(M, N, bias=True)),
+                ("igdn0", GDN(N, inverse=True)),
+                ("conv_transpose1", conv_transpose(N, N, bias=True)),
+                ("igdn1", GDN(N, inverse=True)),
+                ("conv_transpose2", conv_transpose(N, N, bias=True)),
+                ("igdn2", GDN(N, inverse=True)),
+                ("conv_transpose3", conv_transpose(N, 3, bias=True)),
+            ]))
+
+    @staticmethod
+    def load(quality: int) -> FactorizedPriorPretrained:
+        """
+        Loads the pretrained model from the compressAI model zoo. 
+        Might download additional weights. Quality may range from 1 to 8.
+        """
+        model_pretrained = bmshj2018_factorized(
+            quality, pretrained=True, metric="mse")
+        if quality < 6:
+            N, M = 128, 192
+        else:
+            N, M = 192, 320
+        # need to transform to our class to handle it easier
+        model = FactorizedPriorPretrained(N, M)
+        new_param_names = ['entropy_bottleneck._matrix0',
+                           'entropy_bottleneck._bias0',
+                           'entropy_bottleneck._factor0',
+                           'entropy_bottleneck._matrix1',
+                           'entropy_bottleneck._bias1',
+                           'entropy_bottleneck._factor1',
+                           'entropy_bottleneck._matrix2',
+                           'entropy_bottleneck._bias2',
+                           'entropy_bottleneck._factor2',
+                           'entropy_bottleneck._matrix3',
+                           'entropy_bottleneck._bias3',
+                           'entropy_bottleneck._factor3',
+                           'entropy_bottleneck._matrix4',
+                           'entropy_bottleneck._bias4',
+                           'entropy_bottleneck.quantiles',
+                           'entropy_bottleneck._offset',
+                           'entropy_bottleneck._quantized_cdf',
+                           'entropy_bottleneck._cdf_length',
+                           'entropy_bottleneck.target',
+                           'entropy_bottleneck.likelihood_lower_bound.bound',
+                           'analysis_transform.conv0.weight',
+                           'analysis_transform.conv0.bias',
+                           'analysis_transform.gdn0.beta',
+                           'analysis_transform.gdn0.gamma',
+                           'analysis_transform.gdn0.beta_reparam.pedestal',
+                           'analysis_transform.gdn0.beta_reparam.lower_bound.bound',
+                           'analysis_transform.gdn0.gamma_reparam.pedestal',
+                           'analysis_transform.gdn0.gamma_reparam.lower_bound.bound',
+                           'analysis_transform.conv1.weight',
+                           'analysis_transform.conv1.bias',
+                           'analysis_transform.gdn1.beta',
+                           'analysis_transform.gdn1.gamma',
+                           'analysis_transform.gdn1.beta_reparam.pedestal',
+                           'analysis_transform.gdn1.beta_reparam.lower_bound.bound',
+                           'analysis_transform.gdn1.gamma_reparam.pedestal',
+                           'analysis_transform.gdn1.gamma_reparam.lower_bound.bound',
+                           'analysis_transform.conv2.weight',
+                           'analysis_transform.conv2.bias',
+                           'analysis_transform.gdn2.beta',
+                           'analysis_transform.gdn2.gamma',
+                           'analysis_transform.gdn2.beta_reparam.pedestal',
+                           'analysis_transform.gdn2.beta_reparam.lower_bound.bound',
+                           'analysis_transform.gdn2.gamma_reparam.pedestal',
+                           'analysis_transform.gdn2.gamma_reparam.lower_bound.bound',
+                           'analysis_transform.conv3.weight',
+                           'analysis_transform.conv3.bias',
+                           'synthesis_transform.conv_transpose0.weight',
+                           'synthesis_transform.conv_transpose0.bias',
+                           'synthesis_transform.igdn0.beta',
+                           'synthesis_transform.igdn0.gamma',
+                           'synthesis_transform.igdn0.beta_reparam.pedestal',
+                           'synthesis_transform.igdn0.beta_reparam.lower_bound.bound',
+                           'synthesis_transform.igdn0.gamma_reparam.pedestal',
+                           'synthesis_transform.igdn0.gamma_reparam.lower_bound.bound',
+                           'synthesis_transform.conv_transpose1.weight',
+                           'synthesis_transform.conv_transpose1.bias',
+                           'synthesis_transform.igdn1.beta',
+                           'synthesis_transform.igdn1.gamma',
+                           'synthesis_transform.igdn1.beta_reparam.pedestal',
+                           'synthesis_transform.igdn1.beta_reparam.lower_bound.bound',
+                           'synthesis_transform.igdn1.gamma_reparam.pedestal',
+                           'synthesis_transform.igdn1.gamma_reparam.lower_bound.bound',
+                           'synthesis_transform.conv_transpose2.weight',
+                           'synthesis_transform.conv_transpose2.bias',
+                           'synthesis_transform.igdn2.beta',
+                           'synthesis_transform.igdn2.gamma',
+                           'synthesis_transform.igdn2.beta_reparam.pedestal',
+                           'synthesis_transform.igdn2.beta_reparam.lower_bound.bound',
+                           'synthesis_transform.igdn2.gamma_reparam.pedestal',
+                           'synthesis_transform.igdn2.gamma_reparam.lower_bound.bound',
+                           'synthesis_transform.conv_transpose3.weight',
+                           'synthesis_transform.conv_transpose3.bias']
+        new_state_dict = OrderedDict()
+        for param, new_name in zip(model_pretrained.state_dict().values(), new_param_names):
+            new_state_dict[new_name] = param
+        model.load_state_dict(new_state_dict)
+        return model
 
 
 class FactorizedPriorRelu(FactorizedPrior):
@@ -387,19 +515,46 @@ def parse_checkpoint_to_model(checkpoint_filename: str) -> tuple[FactorizedPrior
     return get_model(model_name), float(lambd)
 
 
+pretrained_model_names = {
+    "fp_pretrained": FactorizedPriorPretrained
+}
+
+
 def load_model(checkpoint_path: str) -> FactorizedPrior:
     """
     Returns the model that is parsed from the given checkpoint path.
-    """
-    model, _ = parse_checkpoint_to_model(checkpoint_path)
-    if checkpoint_path:  # load from previous checkpoint
-        checkpoint = torch.load(checkpoint_path,
-                                map_location=torch.device("cpu"))
 
-        new_dict = clean_checkpoint_data_parallel(checkpoint)
-        model.load_state_dict(new_dict)
+    The checkpoint path should be a path to a checkpoint file, which follows
+    the following naming scheme:
+
+    checkpoint-model=<model_name>-lambda=<lambda>-best.pth.tar
+
+    Alternatively, the checkpoint path can be a fictious path and names a pretrained model:
+
+    pretrained-<model-name>-q=<quality>
+    """
+    if checkpoint_path.startswith("pretrained"):
+        match = re.search(r"pretrained-model=(\w+)-q=(\d+)", checkpoint_path)
+        if match is None:
+            raise ValueError(
+                f"Invalid format of pretrained model: {checkpoint_path}")
+        name = match.group(1)
+        quality = match.group(2)
+        model_class = pretrained_model_names.get(name, None)
+        if model_class is None:
+            raise ValueError(f"Model name {name} not recognized")
+        model = model_class.load(int(quality))
     else:
-        raise ValueError("Checkpoint path does not exist:", checkpoint_path)
+        model, _ = parse_checkpoint_to_model(checkpoint_path)
+        if checkpoint_path:  # load from previous checkpoint
+            checkpoint = torch.load(checkpoint_path,
+                                    map_location=torch.device("cpu"))
+
+            new_dict = clean_checkpoint_data_parallel(checkpoint)
+            model.load_state_dict(new_dict)
+        else:
+            raise ValueError(
+                "Checkpoint path does not exist:", checkpoint_path)
     model.update(force=True)
     return model
 
