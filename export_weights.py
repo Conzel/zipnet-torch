@@ -73,11 +73,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint", metavar="CHECKPOINT",
-                        type=pathlib.Path)
+                        type=pathlib.Path, help="Path to the checkpoint to export weights from, or pretrained model.")
     parser.add_argument("--out", metavar="OUT",
-                        type=pathlib.Path, default="weights.npz")
-    parser.add_argument(
-        "-m", "--model", type=str, required=True, help="Model to train"
-    )
+                        type=pathlib.Path, default="weights.npz", help="Name of the file the weights are saved to.")
     args = parser.parse_args()
     main(args)

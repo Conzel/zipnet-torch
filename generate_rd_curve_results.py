@@ -70,7 +70,7 @@ def parse_args(argv):
         "--save-folder", type=str, required=True, help="Folder to dump json files"
     )
     parser.add_argument("--checkpoints", type=str,
-                        help="Path to a checkpoint or folder of checkpoints", required=False)
+                        help="Path to a checkpoint or folder of checkpoints. Can also pass in a pretrained model specifier, omit the quality suffix in this case (see README.md).", required=False)
     parser.add_argument("--baseline", type=str,
                         choices=["jpeg"], required=False, help="Name of the baseline to use.")
     args = parser.parse_args(argv)

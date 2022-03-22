@@ -224,11 +224,11 @@ def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Example training script.")
     parser.add_argument(
-        "-d", "--dataset", type=str, required=True, help="Training dataset"
+        "-d", "--dataset", type=str, required=True, help="Training dataset. The dataset should have imagenet format, e.g. a train and a val folder that themselves contain folders with sample images. More information can be found in the docstring of utils.py/ImageNetDataset"
     )
 
     parser.add_argument(
-        "-m", "--model", type=str, required=True, help="Model to train"
+        "-m", "--model", type=str, required=True, help="Model to train. Available are {fp_relu, fp_gdn, fp_gdn_bias, fp_gdn_upsampling, fp_gdn_upsampling_balle}."
     )
 
     parser.add_argument(
